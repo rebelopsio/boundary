@@ -1,0 +1,170 @@
+name: PR Labeler
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch origin "$BASE_REF"
+
+      - name: Label by crate
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          # Core crate
+          if git diff --name-only "origin/$BASE_REF"...HEAD | grep -q "^crates/boundary-core/"; then
+            gh pr edit "$PR_NUMBER" --add-label "crate:core"
+          fi
+
+          # CLI binary
+          if git diff --name-only "origin/$BASE_REF"...HEAD | grep -q "^crates/boundary/"; then
+            gh pr edit "$PR_NUMBER" --add-label "crate:cli"
+          fi
+
+          # Language analyzers
+          if git diff --name-only "origin/$BASE_REF"...HEAD | grep -q "^crates/boundary-go/"; then
+            gh pr edit "$PR_NUMBER" --add-label "lang:go"
+          fi
+
+          if git diff --name-only "origin/$BASE_REF"...HEAD | grep -q "^crates/boundary-rust/"; then
+            gh pr edit "$PR_NUMBER" --add-label "lang:rust"
+          fi
+
+          if git diff --name-only "origin/$BASE_REF"...HEAD | grep -q "^crates/boundary-typescript/"; then
+            gh pr edit "$PR_NUMBER" --add-label "lang:typescript"
+          fi
+
+          if git diff --name-only "origin/$BASE_REF"...HEAD | grep -q "^crates/boundary-java/"; then
+            gh pr edit "$PR_NUMBER" --add-label "lang:java"
+          fi
+
+          # Report generation
+          if git diff --name-only "origin/$BASE_REF"...HEAD | grep -q "^crates/boundary-report/"; then
+            gh pr edit "$PR_NUMBER" --add-label "crate:report"
+          fi
+
+          # LSP server
+          if git diff --name-only "origin/$BASE_REF"...HEAD | grep -q "^crates/boundary-lsp/"; then
+            gh pr edit "$PR_NUMBER" --add-label "crate:lsp"
+          fi
+
+      - name: Label by file type
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          # CI/CD
+          if git diff --name-only "origin/$BASE_REF"...HEAD | grep -q "^.github/workflows/"; then
+            gh pr edit "$PR_NUMBER" --add-label "ci-cd"
+          fi
+
+          # Documentation
+          if git diff --name-only "origin/$BASE_REF"...HEAD | grep -q "\.md$"; then
+            gh pr edit "$PR_NUMBER" --add-label "documentation"
+          fi
+
+          # Tests
+          if git diff --name-only "origin/$BASE_REF"...HEAD | grep -q -E "(#\[cfg\(test\)\]|#\[test\]|tests/|_test\.rs)"; then
+            gh pr edit "$PR_NUMBER" --add-label "tests"
+          fi
+
+          # Dependencies
+          if git diff --name-only "origin/$BASE_REF"...HEAD | grep -q -E "(Cargo\.toml|Cargo\.lock)"; then
+            gh pr edit "$PR_NUMBER" --add-label "dependencies"
+          fi
+
+          # Configuration
+          if git diff --name-only "origin/$BASE_REF"...HEAD | grep -q -E "(\.boundary\.toml|dist-workspace\.toml|release-please-config\.json)"; then
+            gh pr edit "$PR_NUMBER" --add-label "config"
+          fi
+
+      - name: Label change size (lines changed)
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          # Calculate lines changed (additions + deletions, excluding generated files)
+          LINES_CHANGED=$(git diff "origin/$BASE_REF"...HEAD --stat \
+            -- . \
+            ':!Cargo.lock' \
+            ':!target/' \
+            | tail -1 \
+            | awk '{print $4 + $6}')
+
+          # Default to 0 if no changes detected
+          LINES_CHANGED=${LINES_CHANGED:-0}
+
+          echo "Lines changed (excluding generated files): $LINES_CHANGED"
+
+          if [ "$LINES_CHANGED" -le 50 ]; then
+            gh pr edit "$PR_NUMBER" --add-label "size:tiny"
+            echo "PR size: Tiny (<=50 lines)"
+          elif [ "$LINES_CHANGED" -le 200 ]; then
+            gh pr edit "$PR_NUMBER" --add-label "size:small"
+            echo "PR size: Small (51-200 lines)"
+          elif [ "$LINES_CHANGED" -le 400 ]; then
+            gh pr edit "$PR_NUMBER" --add-label "size:medium"
+            echo "PR size: Medium (201-400 lines)"
+          else
+            gh pr edit "$PR_NUMBER" --add-label "size:large"
+            echo "PR size: Large (401+ lines)"
+          fi
+
+      - name: Comment on large PRs
+        if: success()
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          LINES_CHANGED=$(git diff "origin/$BASE_REF"...HEAD --stat \
+            -- . \
+            ':!Cargo.lock' \
+            ':!target/' \
+            | tail -1 \
+            | awk '{print $4 + $6}')
+
+          LINES_CHANGED=${LINES_CHANGED:-0}
+
+          if [ "$LINES_CHANGED" -gt 400 ]; then
+            EXISTING_COMMENT=$(gh pr view "$PR_NUMBER" --json comments --jq '.comments[] | select(.body | contains("Large PR Detected")) | .body')
+
+            if [ -z "$EXISTING_COMMENT" ]; then
+              printf '## Large PR Detected\n\n' > /tmp/pr-comment.txt
+              printf 'This PR contains **%s lines changed**, which exceeds the recommended limit of 400 lines.\n\n' "$LINES_CHANGED" >> /tmp/pr-comment.txt
+              printf '### Why Small PRs Matter\n' >> /tmp/pr-comment.txt
+              printf -- '- Faster reviews (< 45 min vs 1+ hour)\n' >> /tmp/pr-comment.txt
+              printf -- '- Safer rollbacks (revert specific changes)\n' >> /tmp/pr-comment.txt
+              printf -- '- Fewer conflicts (smaller surface area)\n' >> /tmp/pr-comment.txt
+              printf -- '- Better feedback (iterate quickly)\n\n' >> /tmp/pr-comment.txt
+              printf '### Acceptable Large PRs\n\n' >> /tmp/pr-comment.txt
+              printf 'Large PRs are okay for:\n' >> /tmp/pr-comment.txt
+              printf -- '- Generated code\n' >> /tmp/pr-comment.txt
+              printf -- '- Dependency updates (Cargo.lock)\n' >> /tmp/pr-comment.txt
+              printf -- '- Documentation\n' >> /tmp/pr-comment.txt
+              printf -- '- Test fixtures\n\n' >> /tmp/pr-comment.txt
+              printf 'If this PR falls into one of these categories, you can ignore this message.\n' >> /tmp/pr-comment.txt
+
+              gh pr comment "$PR_NUMBER" --body-file /tmp/pr-comment.txt
+              rm -f /tmp/pr-comment.txt
+            fi
+          fi

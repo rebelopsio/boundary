@@ -14,8 +14,10 @@ use boundary_core::metrics;
 use boundary_core::types::Severity;
 
 use boundary_go::GoAnalyzer;
+use boundary_java::JavaAnalyzer;
 use boundary_report::{json, text};
 use boundary_rust::RustAnalyzer;
+use boundary_typescript::TypeScriptAnalyzer;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum OutputFormat {
@@ -51,6 +53,9 @@ enum Commands {
         /// Languages to analyze (auto-detect if not specified)
         #[arg(long, value_delimiter = ',')]
         languages: Option<Vec<String>>,
+        /// Use incremental analysis (cache unchanged files)
+        #[arg(long)]
+        incremental: bool,
     },
     /// Analyze and exit with code 0 (pass) or 1 (fail)
     Check {
@@ -77,6 +82,9 @@ enum Commands {
         /// Fail if architecture score regresses from last snapshot
         #[arg(long)]
         no_regression: bool,
+        /// Use incremental analysis (cache unchanged files)
+        #[arg(long)]
+        incremental: bool,
     },
     /// Create a default .boundary.toml configuration file
     Init {
@@ -84,7 +92,7 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
-    /// Generate a Mermaid diagram of the architecture
+    /// Generate an architecture diagram (Mermaid or DOT format)
     Diagram {
         /// Path to the project root
         path: PathBuf,
@@ -104,6 +112,8 @@ enum Commands {
 enum DiagramType {
     Layers,
     Dependencies,
+    Dot,
+    DotDependencies,
 }
 
 fn main() {
@@ -116,12 +126,14 @@ fn main() {
             format,
             compact,
             languages,
+            incremental,
         } => cmd_analyze(
             &path,
             config.as_deref(),
             format,
             compact,
             languages.as_deref(),
+            incremental,
         ),
         Commands::Check {
             path,
@@ -132,6 +144,7 @@ fn main() {
             languages,
             track,
             no_regression,
+            incremental,
         } => cmd_check(
             &path,
             &fail_on,
@@ -141,6 +154,7 @@ fn main() {
             languages.as_deref(),
             track,
             no_regression,
+            incremental,
         ),
         Commands::Init { force } => cmd_init(force),
         Commands::Diagram {
@@ -173,10 +187,11 @@ fn cmd_analyze(
     format: OutputFormat,
     compact: bool,
     languages: Option<&[String]>,
+    incremental: bool,
 ) -> Result<()> {
     validate_path(path)?;
     let config = load_config(path, config_path)?;
-    let analysis = run_analysis(path, &config, languages)?;
+    let analysis = run_analysis(path, &config, languages, incremental)?;
 
     let report = match format {
         OutputFormat::Text => text::format_report(&analysis.result),
@@ -197,11 +212,12 @@ fn cmd_check(
     languages: Option<&[String]>,
     track: bool,
     no_regression: bool,
+    incremental: bool,
 ) -> Result<()> {
     validate_path(path)?;
     let config = load_config(path, config_path)?;
     let fail_on: Severity = fail_on_str.parse()?;
-    let analysis = run_analysis(path, &config, languages)?;
+    let analysis = run_analysis(path, &config, languages, incremental)?;
 
     // Evolution tracking
     if track {
@@ -257,12 +273,16 @@ fn cmd_diagram(
 ) -> Result<()> {
     validate_path(path)?;
     let config = load_config(path, config_path)?;
-    let analysis = run_analysis(path, &config, languages)?;
+    let analysis = run_analysis(path, &config, languages, false)?;
 
     let diagram = match diagram_type {
         DiagramType::Layers => boundary_report::diagram::generate_layer_diagram(&analysis.graph),
         DiagramType::Dependencies => {
             boundary_report::diagram::generate_dependency_flow(&analysis.graph)
+        }
+        DiagramType::Dot => boundary_report::dot::generate_layer_diagram(&analysis.graph),
+        DiagramType::DotDependencies => {
+            boundary_report::dot::generate_dependency_flow(&analysis.graph)
         }
     };
     println!("{diagram}");
@@ -324,6 +344,16 @@ fn create_analyzers(
                     RustAnalyzer::new().context("failed to init Rust analyzer")?,
                 ));
             }
+            "typescript" | "ts" => {
+                analyzers.push(Box::new(
+                    TypeScriptAnalyzer::new().context("failed to init TypeScript analyzer")?,
+                ));
+            }
+            "java" => {
+                analyzers.push(Box::new(
+                    JavaAnalyzer::new().context("failed to init Java analyzer")?,
+                ));
+            }
             other => {
                 eprintln!("Warning: unsupported language '{other}', skipping");
             }
@@ -341,6 +371,8 @@ fn create_analyzers(
 fn auto_detect_languages(project_path: &Path) -> Vec<String> {
     let mut has_go = false;
     let mut has_rust = false;
+    let mut has_ts = false;
+    let mut has_java = false;
 
     for entry in WalkDir::new(project_path)
         .into_iter()
@@ -351,10 +383,17 @@ fn auto_detect_languages(project_path: &Path) -> Vec<String> {
             match ext.to_str() {
                 Some("go") => has_go = true,
                 Some("rs") => has_rust = true,
+                Some("ts" | "tsx") => {
+                    // Skip .d.ts files
+                    if !entry.path().to_string_lossy().ends_with(".d.ts") {
+                        has_ts = true;
+                    }
+                }
+                Some("java") => has_java = true,
                 _ => {}
             }
         }
-        if has_go && has_rust {
+        if has_go && has_rust && has_ts && has_java {
             break;
         }
     }
@@ -365,6 +404,12 @@ fn auto_detect_languages(project_path: &Path) -> Vec<String> {
     }
     if has_rust {
         languages.push("rust".to_string());
+    }
+    if has_ts {
+        languages.push("typescript".to_string());
+    }
+    if has_java {
+        languages.push("java".to_string());
     }
     if languages.is_empty() {
         // Fallback to Go for backward compat
@@ -377,12 +422,20 @@ fn run_analysis(
     project_path: &Path,
     config: &Config,
     language_override: Option<&[String]>,
+    incremental: bool,
 ) -> Result<FullAnalysis> {
     let analyzers = create_analyzers(project_path, config, language_override)?;
     let classifier = LayerClassifier::new(&config.layers);
     let mut graph = DependencyGraph::new();
     let mut total_deps = 0usize;
     let mut all_components = Vec::new();
+
+    // Load cache if incremental
+    let mut cache = if incremental {
+        boundary_core::cache::AnalysisCache::load(project_path).unwrap_or_default()
+    } else {
+        boundary_core::cache::AnalysisCache::new()
+    };
 
     for analyzer in &analyzers {
         let extensions: Vec<&str> = analyzer.file_extensions().to_vec();
@@ -404,6 +457,7 @@ fn run_analysis(
                 !path_str.contains("vendor/")
                     && !path_str.contains("/target/")
                     && !path_str.ends_with("_test.go")
+                    && !path_str.ends_with(".d.ts")
             })
             .map(|e| e.into_path())
             .collect();
@@ -413,7 +467,7 @@ fn run_analysis(
         }
 
         // Parse and extract in parallel
-        let file_results: Vec<FileResult> = source_files
+        let file_results: Vec<(String, FileResult, String)> = source_files
             .par_iter()
             .filter_map(|file_path| {
                 let content = match std::fs::read_to_string(file_path) {
@@ -424,6 +478,53 @@ fn run_analysis(
                     }
                 };
 
+                let rel_path = file_path
+                    .strip_prefix(project_path)
+                    .unwrap_or(file_path)
+                    .to_string_lossy()
+                    .to_string();
+
+                // Check cache for incremental analysis
+                if incremental {
+                    if let Some(cached) = cache.get(&rel_path, &content) {
+                        let file_layer = classifier.classify(&rel_path);
+                        let components: Vec<_> = cached
+                            .components
+                            .iter()
+                            .map(|comp| {
+                                let mut comp = comp.clone();
+                                if comp.layer.is_none() {
+                                    comp.layer = file_layer;
+                                }
+                                let layer = comp.layer;
+                                (comp, layer)
+                            })
+                            .collect();
+
+                        let dependencies: Vec<_> = cached
+                            .dependencies
+                            .iter()
+                            .map(|dep| {
+                                let to_layer = dep
+                                    .import_path
+                                    .as_deref()
+                                    .and_then(|p| classifier.classify_import(p));
+                                let from_layer = classifier.classify(&rel_path);
+                                (dep.clone(), from_layer, to_layer)
+                            })
+                            .collect();
+
+                        return Some((
+                            rel_path,
+                            FileResult {
+                                components,
+                                dependencies,
+                            },
+                            content,
+                        ));
+                    }
+                }
+
                 let parsed = match analyzer.parse_file(file_path, &content) {
                     Ok(p) => p,
                     Err(e) => {
@@ -431,11 +532,6 @@ fn run_analysis(
                         return None;
                     }
                 };
-
-                let rel_path = file_path
-                    .strip_prefix(project_path)
-                    .unwrap_or(file_path)
-                    .to_string_lossy();
 
                 // Extract and classify components
                 let mut components_raw = analyzer.extract_components(&parsed);
@@ -466,15 +562,42 @@ fn run_analysis(
                     })
                     .collect();
 
-                Some(FileResult {
-                    components,
-                    dependencies,
-                })
+                Some((
+                    rel_path,
+                    FileResult {
+                        components,
+                        dependencies,
+                    },
+                    content,
+                ))
             })
             .collect();
 
+        // Collect rel_paths for pruning
+        let current_files: Vec<String> = file_results.iter().map(|(p, _, _)| p.clone()).collect();
+
         // Merge results sequentially into graph
-        for fr in file_results {
+        for (rel_path, fr, content) in file_results {
+            // Update cache with fresh results
+            if incremental {
+                let cached_components: Vec<_> =
+                    fr.components.iter().map(|(comp, _)| comp.clone()).collect();
+                let cached_deps: Vec<_> = fr
+                    .dependencies
+                    .iter()
+                    .map(|(dep, _, _)| dep.clone())
+                    .collect();
+                cache.insert(
+                    rel_path,
+                    &content,
+                    boundary_core::cache::CachedFileResult {
+                        hash: String::new(),
+                        components: cached_components,
+                        dependencies: cached_deps,
+                    },
+                );
+            }
+
             for (comp, _) in &fr.components {
                 graph.add_component(comp);
                 all_components.push(comp.clone());
@@ -485,6 +608,18 @@ fn run_analysis(
                 graph.add_dependency(dep);
             }
             total_deps += fr.dependencies.len();
+        }
+
+        // Prune deleted files from cache
+        if incremental {
+            cache.prune(&current_files);
+        }
+    }
+
+    // Save cache if incremental
+    if incremental {
+        if let Err(e) = cache.save(project_path) {
+            eprintln!("Warning: failed to save analysis cache: {e}");
         }
     }
 

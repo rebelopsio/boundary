@@ -181,6 +181,9 @@ pub enum ViolationKind {
     CustomRule {
         rule_name: String,
     },
+    DomainInfrastructureLeak {
+        detail: String,
+    },
 }
 
 /// An architectural violation

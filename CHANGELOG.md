@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/rebelopsio/boundary/compare/v0.2.0...v0.3.0) (2026-02-16)
+
+
+### Features
+
+* add rust language, documentation, and metrics ([#8](https://github.com/rebelopsio/boundary/issues/8)) ([a6cc594](https://github.com/rebelopsio/boundary/commit/a6cc594769e8ddca731047a82e0444370b469b90))
+
 ## [0.2.0](https://github.com/rebelopsio/boundary/compare/v0.1.0...v0.2.0) (2026-02-16)
 
 

@@ -25,6 +25,34 @@ pub fn format_report(result: &AnalysisResult) -> String {
         result.dependency_count,
     ));
 
+    // Metrics
+    if let Some(ref metrics) = result.metrics {
+        out.push_str(&format!("\n{}\n{}\n", "Metrics".bold(), "-".repeat(40)));
+
+        if !metrics.components_by_layer.is_empty() {
+            out.push_str("  Components by layer:\n");
+            let mut layers: Vec<_> = metrics.components_by_layer.iter().collect();
+            layers.sort_by_key(|(k, _)| (*k).clone());
+            for (layer, count) in layers {
+                out.push_str(&format!("    {layer}: {count}\n"));
+            }
+        }
+
+        if !metrics.components_by_kind.is_empty() {
+            out.push_str("  Components by kind:\n");
+            let mut kinds: Vec<_> = metrics.components_by_kind.iter().collect();
+            kinds.sort_by_key(|(k, _)| (*k).clone());
+            for (kind, count) in kinds {
+                out.push_str(&format!("    {kind}: {count}\n"));
+            }
+        }
+
+        out.push_str(&format!(
+            "  Dependency depth: max={}, avg={:.1}\n",
+            metrics.dependency_depth.max_depth, metrics.dependency_depth.avg_depth
+        ));
+    }
+
     // Violations
     if result.violations.is_empty() {
         out.push_str(&format!("\n{}\n", "No violations found!".green().bold()));
@@ -53,6 +81,9 @@ pub fn format_report(result: &AnalysisResult) -> String {
                 ViolationKind::CircularDependency { .. } => "circular dependency".to_string(),
                 ViolationKind::MissingPort { adapter_name } => {
                     format!("missing port for {adapter_name}")
+                }
+                ViolationKind::CustomRule { rule_name } => {
+                    format!("custom: {rule_name}")
                 }
             };
 

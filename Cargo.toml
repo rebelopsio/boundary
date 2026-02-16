@@ -41,6 +41,8 @@ globset = "0.4"
 clap = { version = "4.5", features = ["derive"] }
 colored = "3.1"
 rayon = "1.10"
+regex = "1"
+chrono = { version = "0.4", features = ["serde"] }
 
 # Testing
 tempfile = "3.14"

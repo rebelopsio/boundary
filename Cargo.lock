@@ -127,7 +127,7 @@ dependencies = [
 
 [[package]]
 name = "boundary"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "boundary-core",
@@ -148,7 +148,7 @@ dependencies = [
 
 [[package]]
 name = "boundary-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -168,7 +168,7 @@ dependencies = [
 
 [[package]]
 name = "boundary-go"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "boundary-core",
@@ -181,7 +181,7 @@ dependencies = [
 
 [[package]]
 name = "boundary-java"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "boundary-core",
@@ -194,7 +194,7 @@ dependencies = [
 
 [[package]]
 name = "boundary-lsp"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "boundary-core",
@@ -211,7 +211,7 @@ dependencies = [
 
 [[package]]
 name = "boundary-report"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "boundary-core",
@@ -223,7 +223,7 @@ dependencies = [
 
 [[package]]
 name = "boundary-rust"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "boundary-core",
@@ -236,7 +236,7 @@ dependencies = [
 
 [[package]]
 name = "boundary-typescript"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "boundary-core",

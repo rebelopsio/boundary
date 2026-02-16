@@ -1,0 +1,21 @@
+[package]
+name = "boundary-report"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Report generators for boundary analysis results"
+
+[dependencies]
+boundary-core.workspace = true
+
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+colored.workspace = true
+
+# Optional: for diagram generation
+# mermaid-rs = "0.1"  # if you want programmatic Mermaid
+# petgraph = { workspace = true, features = ["dot"] }  # for GraphViz DOT format

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/rebelopsio/boundary/compare/v0.3.0...v0.4.0) (2026-02-16)
+
+
+### Features
+
+* add lsp, typescript, java ([#10](https://github.com/rebelopsio/boundary/issues/10)) ([f6356fe](https://github.com/rebelopsio/boundary/commit/f6356fe0cbde235129de8078a6949ad070ef5ebf))
+
 ## [0.3.0](https://github.com/rebelopsio/boundary/compare/v0.2.0...v0.3.0) (2026-02-16)
 
 

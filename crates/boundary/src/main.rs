@@ -15,11 +15,13 @@ use boundary_core::types::Severity;
 
 use boundary_go::GoAnalyzer;
 use boundary_report::{json, text};
+use boundary_rust::RustAnalyzer;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum OutputFormat {
     Text,
     Json,
+    Markdown,
 }
 
 #[derive(Parser)]
@@ -46,6 +48,9 @@ enum Commands {
         /// Compact output (single-line JSON, no colors for text)
         #[arg(long)]
         compact: bool,
+        /// Languages to analyze (auto-detect if not specified)
+        #[arg(long, value_delimiter = ',')]
+        languages: Option<Vec<String>>,
     },
     /// Analyze and exit with code 0 (pass) or 1 (fail)
     Check {
@@ -63,6 +68,15 @@ enum Commands {
         /// Compact output (single-line JSON, no colors for text)
         #[arg(long)]
         compact: bool,
+        /// Languages to analyze (auto-detect if not specified)
+        #[arg(long, value_delimiter = ',')]
+        languages: Option<Vec<String>>,
+        /// Save analysis snapshot for evolution tracking
+        #[arg(long)]
+        track: bool,
+        /// Fail if architecture score regresses from last snapshot
+        #[arg(long)]
+        no_regression: bool,
     },
     /// Create a default .boundary.toml configuration file
     Init {
@@ -70,6 +84,26 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+    /// Generate a Mermaid diagram of the architecture
+    Diagram {
+        /// Path to the project root
+        path: PathBuf,
+        /// Config file path
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+        /// Diagram type
+        #[arg(long, value_enum, default_value_t = DiagramType::Layers)]
+        diagram_type: DiagramType,
+        /// Languages to analyze (auto-detect if not specified)
+        #[arg(long, value_delimiter = ',')]
+        languages: Option<Vec<String>>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum DiagramType {
+    Layers,
+    Dependencies,
 }
 
 fn main() {
@@ -81,15 +115,40 @@ fn main() {
             config,
             format,
             compact,
-        } => cmd_analyze(&path, config.as_deref(), format, compact),
+            languages,
+        } => cmd_analyze(
+            &path,
+            config.as_deref(),
+            format,
+            compact,
+            languages.as_deref(),
+        ),
         Commands::Check {
             path,
             fail_on,
             config,
             format,
             compact,
-        } => cmd_check(&path, &fail_on, config.as_deref(), format, compact),
+            languages,
+            track,
+            no_regression,
+        } => cmd_check(
+            &path,
+            &fail_on,
+            config.as_deref(),
+            format,
+            compact,
+            languages.as_deref(),
+            track,
+            no_regression,
+        ),
         Commands::Init { force } => cmd_init(force),
+        Commands::Diagram {
+            path,
+            config,
+            diagram_type,
+            languages,
+        } => cmd_diagram(&path, config.as_deref(), diagram_type, languages.as_deref()),
     };
 
     if let Err(e) = result {
@@ -113,34 +172,65 @@ fn cmd_analyze(
     config_path: Option<&Path>,
     format: OutputFormat,
     compact: bool,
+    languages: Option<&[String]>,
 ) -> Result<()> {
     validate_path(path)?;
     let config = load_config(path, config_path)?;
-    let result = run_analysis(path, &config)?;
+    let analysis = run_analysis(path, &config, languages)?;
 
     let report = match format {
-        OutputFormat::Text => text::format_report(&result),
-        OutputFormat::Json => json::format_report(&result, compact),
+        OutputFormat::Text => text::format_report(&analysis.result),
+        OutputFormat::Json => json::format_report(&analysis.result, compact),
+        OutputFormat::Markdown => boundary_report::markdown::format_report(&analysis.result),
     };
     println!("{report}");
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cmd_check(
     path: &Path,
     fail_on_str: &str,
     config_path: Option<&Path>,
     format: OutputFormat,
     compact: bool,
+    languages: Option<&[String]>,
+    track: bool,
+    no_regression: bool,
 ) -> Result<()> {
     validate_path(path)?;
     let config = load_config(path, config_path)?;
     let fail_on: Severity = fail_on_str.parse()?;
-    let result = run_analysis(path, &config)?;
+    let analysis = run_analysis(path, &config, languages)?;
+
+    // Evolution tracking
+    if track {
+        boundary_core::evolution::save_snapshot(path, &analysis.result)?;
+    }
+    if no_regression {
+        if let Some(trend) = boundary_core::evolution::check_regression(path, &analysis.result)? {
+            let (report, _) = match format {
+                OutputFormat::Text => text::format_check(&analysis.result, fail_on),
+                OutputFormat::Json => json::format_check(&analysis.result, fail_on, compact),
+                OutputFormat::Markdown => {
+                    boundary_report::markdown::format_check(&analysis.result, fail_on)
+                }
+            };
+            println!("{report}");
+            eprintln!(
+                "Score regression detected: {:.1} -> {:.1} (delta: {:.1})",
+                trend.previous_score, trend.current_score, trend.score_delta
+            );
+            process::exit(1);
+        }
+    }
 
     let (report, passed) = match format {
-        OutputFormat::Text => text::format_check(&result, fail_on),
-        OutputFormat::Json => json::format_check(&result, fail_on, compact),
+        OutputFormat::Text => text::format_check(&analysis.result, fail_on),
+        OutputFormat::Json => json::format_check(&analysis.result, fail_on, compact),
+        OutputFormat::Markdown => {
+            boundary_report::markdown::format_check(&analysis.result, fail_on)
+        }
     };
     println!("{report}");
     if !passed {
@@ -159,11 +249,37 @@ fn cmd_init(force: bool) -> Result<()> {
     Ok(())
 }
 
+fn cmd_diagram(
+    path: &Path,
+    config_path: Option<&Path>,
+    diagram_type: DiagramType,
+    languages: Option<&[String]>,
+) -> Result<()> {
+    validate_path(path)?;
+    let config = load_config(path, config_path)?;
+    let analysis = run_analysis(path, &config, languages)?;
+
+    let diagram = match diagram_type {
+        DiagramType::Layers => boundary_report::diagram::generate_layer_diagram(&analysis.graph),
+        DiagramType::Dependencies => {
+            boundary_report::diagram::generate_dependency_flow(&analysis.graph)
+        }
+    };
+    println!("{diagram}");
+    Ok(())
+}
+
 fn load_config(project_path: &Path, config_path: Option<&Path>) -> Result<Config> {
     match config_path {
         Some(p) => Config::load(p),
         None => Ok(Config::load_or_default(project_path)),
     }
+}
+
+/// Full analysis output including the graph for diagram generation.
+pub struct FullAnalysis {
+    pub result: metrics::AnalysisResult,
+    pub graph: DependencyGraph,
 }
 
 /// Extracted per-file data before merging into the graph.
@@ -179,102 +295,199 @@ struct FileResult {
     )>,
 }
 
-fn run_analysis(project_path: &Path, config: &Config) -> Result<metrics::AnalysisResult> {
-    let analyzer = GoAnalyzer::new().context("failed to initialize Go analyzer")?;
+/// Create analyzers based on languages config or auto-detection.
+fn create_analyzers(
+    project_path: &Path,
+    config: &Config,
+    language_override: Option<&[String]>,
+) -> Result<Vec<Box<dyn LanguageAnalyzer>>> {
+    let languages: Vec<String> = if let Some(langs) = language_override {
+        langs.to_vec()
+    } else if config.project.languages.is_empty() {
+        // Auto-detect based on file extensions present
+        auto_detect_languages(project_path)
+    } else {
+        config.project.languages.clone()
+    };
+
+    let mut analyzers: Vec<Box<dyn LanguageAnalyzer>> = Vec::new();
+
+    for lang in &languages {
+        match lang.as_str() {
+            "go" => {
+                analyzers.push(Box::new(
+                    GoAnalyzer::new().context("failed to init Go analyzer")?,
+                ));
+            }
+            "rust" => {
+                analyzers.push(Box::new(
+                    RustAnalyzer::new().context("failed to init Rust analyzer")?,
+                ));
+            }
+            other => {
+                eprintln!("Warning: unsupported language '{other}', skipping");
+            }
+        }
+    }
+
+    if analyzers.is_empty() {
+        anyhow::bail!("no supported language analyzers could be initialized");
+    }
+
+    Ok(analyzers)
+}
+
+/// Auto-detect languages by scanning for file extensions.
+fn auto_detect_languages(project_path: &Path) -> Vec<String> {
+    let mut has_go = false;
+    let mut has_rust = false;
+
+    for entry in WalkDir::new(project_path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .take(1000)
+    {
+        if let Some(ext) = entry.path().extension() {
+            match ext.to_str() {
+                Some("go") => has_go = true,
+                Some("rs") => has_rust = true,
+                _ => {}
+            }
+        }
+        if has_go && has_rust {
+            break;
+        }
+    }
+
+    let mut languages = Vec::new();
+    if has_go {
+        languages.push("go".to_string());
+    }
+    if has_rust {
+        languages.push("rust".to_string());
+    }
+    if languages.is_empty() {
+        // Fallback to Go for backward compat
+        languages.push("go".to_string());
+    }
+    languages
+}
+
+fn run_analysis(
+    project_path: &Path,
+    config: &Config,
+    language_override: Option<&[String]>,
+) -> Result<FullAnalysis> {
+    let analyzers = create_analyzers(project_path, config, language_override)?;
     let classifier = LayerClassifier::new(&config.layers);
     let mut graph = DependencyGraph::new();
     let mut total_deps = 0usize;
+    let mut all_components = Vec::new();
 
-    // Walk directory and find Go files
-    let go_files: Vec<PathBuf> = WalkDir::new(project_path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            let p = e.path();
-            p.extension().is_some_and(|ext| ext == "go")
-                && !p.to_string_lossy().contains("vendor/")
-                && !p.to_string_lossy().ends_with("_test.go")
-        })
-        .map(|e| e.into_path())
-        .collect();
+    for analyzer in &analyzers {
+        let extensions: Vec<&str> = analyzer.file_extensions().to_vec();
 
-    if go_files.is_empty() {
-        eprintln!("Warning: no Go files found in '{}'", project_path.display());
-    }
-
-    // Parse and extract in parallel
-    let file_results: Vec<FileResult> = go_files
-        .par_iter()
-        .filter_map(|file_path| {
-            let content = match std::fs::read_to_string(file_path) {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("Warning: failed to read {}: {e}", file_path.display());
-                    return None;
+        // Walk directory and find matching files
+        let source_files: Vec<PathBuf> = WalkDir::new(project_path)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let p = e.path();
+                let matches_ext = p
+                    .extension()
+                    .is_some_and(|ext| extensions.iter().any(|e| ext == *e));
+                if !matches_ext {
+                    return false;
                 }
-            };
-
-            let parsed = match analyzer.parse_file(file_path, &content) {
-                Ok(p) => p,
-                Err(e) => {
-                    eprintln!("Warning: failed to parse {}: {e}", file_path.display());
-                    return None;
-                }
-            };
-
-            let rel_path = file_path
-                .strip_prefix(project_path)
-                .unwrap_or(file_path)
-                .to_string_lossy();
-
-            // Extract and classify components
-            let mut components_raw = analyzer.extract_components(&parsed);
-            let file_layer = classifier.classify(&rel_path);
-
-            let components: Vec<_> = components_raw
-                .drain(..)
-                .map(|mut comp| {
-                    if comp.layer.is_none() {
-                        comp.layer = file_layer;
-                    }
-                    let layer = comp.layer;
-                    (comp, layer)
-                })
-                .collect();
-
-            // Extract dependencies with layer info
-            let deps = analyzer.extract_dependencies(&parsed);
-            let dependencies: Vec<_> = deps
-                .into_iter()
-                .map(|dep| {
-                    let to_layer = dep
-                        .import_path
-                        .as_deref()
-                        .and_then(|p| classifier.classify_import(p));
-                    let from_layer = classifier.classify(&rel_path);
-                    (dep, from_layer, to_layer)
-                })
-                .collect();
-
-            Some(FileResult {
-                components,
-                dependencies,
+                let path_str = p.to_string_lossy();
+                // Common exclusions
+                !path_str.contains("vendor/")
+                    && !path_str.contains("/target/")
+                    && !path_str.ends_with("_test.go")
             })
-        })
-        .collect();
+            .map(|e| e.into_path())
+            .collect();
 
-    // Merge results sequentially into graph
-    for fr in file_results {
-        for (comp, _) in &fr.components {
-            graph.add_component(comp);
+        if source_files.is_empty() {
+            continue;
         }
-        for (dep, from_layer, to_layer) in &fr.dependencies {
-            graph.ensure_node(&dep.from, *from_layer);
-            graph.ensure_node(&dep.to, *to_layer);
-            graph.add_dependency(dep);
+
+        // Parse and extract in parallel
+        let file_results: Vec<FileResult> = source_files
+            .par_iter()
+            .filter_map(|file_path| {
+                let content = match std::fs::read_to_string(file_path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Warning: failed to read {}: {e}", file_path.display());
+                        return None;
+                    }
+                };
+
+                let parsed = match analyzer.parse_file(file_path, &content) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        eprintln!("Warning: failed to parse {}: {e}", file_path.display());
+                        return None;
+                    }
+                };
+
+                let rel_path = file_path
+                    .strip_prefix(project_path)
+                    .unwrap_or(file_path)
+                    .to_string_lossy();
+
+                // Extract and classify components
+                let mut components_raw = analyzer.extract_components(&parsed);
+                let file_layer = classifier.classify(&rel_path);
+
+                let components: Vec<_> = components_raw
+                    .drain(..)
+                    .map(|mut comp| {
+                        if comp.layer.is_none() {
+                            comp.layer = file_layer;
+                        }
+                        let layer = comp.layer;
+                        (comp, layer)
+                    })
+                    .collect();
+
+                // Extract dependencies with layer info
+                let deps = analyzer.extract_dependencies(&parsed);
+                let dependencies: Vec<_> = deps
+                    .into_iter()
+                    .map(|dep| {
+                        let to_layer = dep
+                            .import_path
+                            .as_deref()
+                            .and_then(|p| classifier.classify_import(p));
+                        let from_layer = classifier.classify(&rel_path);
+                        (dep, from_layer, to_layer)
+                    })
+                    .collect();
+
+                Some(FileResult {
+                    components,
+                    dependencies,
+                })
+            })
+            .collect();
+
+        // Merge results sequentially into graph
+        for fr in file_results {
+            for (comp, _) in &fr.components {
+                graph.add_component(comp);
+                all_components.push(comp.clone());
+            }
+            for (dep, from_layer, to_layer) in &fr.dependencies {
+                graph.ensure_node(&dep.from, *from_layer);
+                graph.ensure_node(&dep.to, *to_layer);
+                graph.add_dependency(dep);
+            }
+            total_deps += fr.dependencies.len();
         }
-        total_deps += fr.dependencies.len();
     }
 
-    Ok(metrics::build_result(&graph, config, total_deps))
+    let result = metrics::build_result(&graph, config, total_deps, &all_components);
+    Ok(FullAnalysis { result, graph })
 }

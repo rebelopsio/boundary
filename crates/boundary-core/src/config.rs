@@ -132,6 +132,28 @@ impl Default for ScoringConfig {
     }
 }
 
+/// A custom rule defined in configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomRuleConfig {
+    pub name: String,
+    pub from_pattern: String,
+    pub to_pattern: String,
+    #[serde(default = "default_deny")]
+    pub action: String,
+    #[serde(default = "default_custom_rule_severity")]
+    pub severity: Severity,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+fn default_deny() -> String {
+    "deny".to_string()
+}
+
+fn default_custom_rule_severity() -> Severity {
+    Severity::Error
+}
+
 /// Rule configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RulesConfig {
@@ -141,6 +163,8 @@ pub struct RulesConfig {
     pub fail_on: Severity,
     #[serde(default)]
     pub min_score: Option<f64>,
+    #[serde(default)]
+    pub custom_rules: Vec<CustomRuleConfig>,
 }
 
 fn default_severities() -> HashMap<String, Severity> {
@@ -161,6 +185,7 @@ impl Default for RulesConfig {
             severities: default_severities(),
             fail_on: default_fail_on(),
             min_score: None,
+            custom_rules: Vec::new(),
         }
     }
 }

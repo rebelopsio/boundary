@@ -4,6 +4,7 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 use serde::{Deserialize, Serialize};
 
+use crate::metrics_report::LayerCouplingMatrix;
 use crate::types::{ArchLayer, Component, ComponentId, Dependency, DependencyKind, SourceLocation};
 
 /// Node in the dependency graph
@@ -107,6 +108,74 @@ impl DependencyGraph {
     /// Get all nodes
     pub fn nodes(&self) -> Vec<&GraphNode> {
         self.graph.node_weights().collect()
+    }
+
+    /// Count nodes grouped by layer.
+    pub fn nodes_by_layer(&self) -> HashMap<String, usize> {
+        let mut counts: HashMap<String, usize> = HashMap::new();
+        for node in self.graph.node_weights() {
+            let key = match node.layer {
+                Some(layer) => layer.to_string(),
+                None => "unclassified".to_string(),
+            };
+            *counts.entry(key).or_insert(0) += 1;
+        }
+        counts
+    }
+
+    /// Build a layer coupling matrix from edge data.
+    pub fn layer_coupling_matrix(&self) -> LayerCouplingMatrix {
+        let mut matrix = LayerCouplingMatrix::new();
+        for edge in self.graph.edge_references() {
+            let src = &self.graph[edge.source()];
+            let tgt = &self.graph[edge.target()];
+            if let (Some(from_layer), Some(to_layer)) = (src.layer, tgt.layer) {
+                matrix.increment(&from_layer, &to_layer);
+            }
+        }
+        matrix
+    }
+
+    /// Calculate max dependency depth using BFS from each root node.
+    pub fn max_dependency_depth(&self) -> usize {
+        use petgraph::visit::Bfs;
+        let mut max_depth = 0;
+        // Find root nodes (no incoming edges)
+        for idx in self.graph.node_indices() {
+            let has_incoming = self
+                .graph
+                .neighbors_directed(idx, petgraph::Direction::Incoming)
+                .next()
+                .is_some();
+            if !has_incoming {
+                let mut bfs = Bfs::new(&self.graph, idx);
+                let mut depth = 0;
+                let mut current_level_end = idx;
+                let mut next_level_end = idx;
+                while let Some(node) = bfs.next(&self.graph) {
+                    if node == current_level_end || node == idx {
+                        // Check neighbors to find end of next level
+                        for neighbor in self.graph.neighbors(node) {
+                            next_level_end = neighbor;
+                        }
+                    }
+                    for neighbor in self.graph.neighbors(node) {
+                        next_level_end = neighbor;
+                    }
+                    if node == current_level_end && node != idx {
+                        depth += 1;
+                        current_level_end = next_level_end;
+                    }
+                }
+                // Simple approach: count edges in longest path from root
+                max_depth = max_depth.max(depth);
+            }
+        }
+        // Fallback: use edge count as rough depth estimate
+        if max_depth == 0 && self.graph.edge_count() > 0 {
+            max_depth = 1;
+        }
+        max_depth
     }
 }
 

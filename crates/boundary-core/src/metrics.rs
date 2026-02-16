@@ -1,8 +1,13 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
 use crate::graph::DependencyGraph;
-use crate::types::{ArchLayer, Severity, SourceLocation, Violation, ViolationKind};
+use crate::metrics_report::{DependencyDepthMetrics, MetricsReport};
+use crate::types::{
+    ArchLayer, Component, ComponentKind, Severity, SourceLocation, Violation, ViolationKind,
+};
 
 /// Breakdown of architecture scores.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,12 +19,14 @@ pub struct ArchitectureScore {
 }
 
 /// Full analysis result.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalysisResult {
     pub score: ArchitectureScore,
     pub violations: Vec<Violation>,
     pub component_count: usize,
     pub dependency_count: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metrics: Option<MetricsReport>,
 }
 
 /// Calculate architecture score from the dependency graph.
@@ -53,6 +60,20 @@ pub fn detect_violations(graph: &DependencyGraph, config: &Config) -> Vec<Violat
 
     // Circular dependency violations
     detect_circular_dependencies(graph, config, &mut violations);
+
+    // Custom rules
+    if !config.rules.custom_rules.is_empty() {
+        match crate::custom_rules::compile_rules(&config.rules.custom_rules) {
+            Ok(compiled) => {
+                let custom_violations =
+                    crate::custom_rules::evaluate_custom_rules(graph, &compiled);
+                violations.extend(custom_violations);
+            }
+            Err(e) => {
+                eprintln!("Warning: failed to compile custom rules: {e:#}");
+            }
+        }
+    }
 
     violations
 }
@@ -218,15 +239,82 @@ fn calculate_interface_coverage(graph: &DependencyGraph) -> f64 {
 }
 
 /// Build a complete `AnalysisResult`.
-pub fn build_result(graph: &DependencyGraph, config: &Config, dep_count: usize) -> AnalysisResult {
+pub fn build_result(
+    graph: &DependencyGraph,
+    config: &Config,
+    dep_count: usize,
+    components: &[Component],
+) -> AnalysisResult {
     let score = calculate_score(graph, config);
     let violations = detect_violations(graph, config);
+
+    let metrics = compute_metrics(graph, components, &violations);
 
     AnalysisResult {
         score,
         violations,
         component_count: graph.node_count(),
         dependency_count: dep_count,
+        metrics: Some(metrics),
+    }
+}
+
+fn compute_metrics(
+    graph: &DependencyGraph,
+    components: &[Component],
+    violations: &[Violation],
+) -> MetricsReport {
+    // Components by kind
+    let mut components_by_kind: HashMap<String, usize> = HashMap::new();
+    for comp in components {
+        let kind_name = match &comp.kind {
+            ComponentKind::Port(_) => "port",
+            ComponentKind::Adapter(_) => "adapter",
+            ComponentKind::Entity(_) => "entity",
+            ComponentKind::ValueObject => "value_object",
+            ComponentKind::UseCase => "use_case",
+            ComponentKind::Repository => "repository",
+            ComponentKind::Service => "service",
+        };
+        *components_by_kind.entry(kind_name.to_string()).or_insert(0) += 1;
+    }
+
+    // Components by layer
+    let components_by_layer = graph.nodes_by_layer();
+
+    // Violations by kind
+    let mut violations_by_kind: HashMap<String, usize> = HashMap::new();
+    for v in violations {
+        let kind_name = match &v.kind {
+            ViolationKind::LayerBoundary { .. } => "layer_boundary",
+            ViolationKind::CircularDependency { .. } => "circular_dependency",
+            ViolationKind::MissingPort { .. } => "missing_port",
+            ViolationKind::CustomRule { .. } => "custom_rule",
+        };
+        *violations_by_kind.entry(kind_name.to_string()).or_insert(0) += 1;
+    }
+
+    // Dependency depth
+    let max_depth = graph.max_dependency_depth();
+    let node_count = graph.node_count();
+    let avg_depth = if node_count > 0 {
+        max_depth as f64 / node_count as f64
+    } else {
+        0.0
+    };
+
+    // Layer coupling
+    let layer_coupling = graph.layer_coupling_matrix();
+
+    MetricsReport {
+        components_by_kind,
+        components_by_layer,
+        violations_by_kind,
+        dependency_depth: DependencyDepthMetrics {
+            max_depth,
+            avg_depth,
+        },
+        layer_coupling,
     }
 }
 
@@ -347,9 +435,10 @@ mod tests {
     fn test_build_result() {
         let graph = DependencyGraph::new();
         let config = Config::default();
-        let result = build_result(&graph, &config, 0);
+        let result = build_result(&graph, &config, 0, &[]);
         assert_eq!(result.component_count, 0);
         assert_eq!(result.dependency_count, 0);
         assert!(result.violations.is_empty());
+        assert!(result.metrics.is_some());
     }
 }

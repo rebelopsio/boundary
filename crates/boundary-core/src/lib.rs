@@ -1,8 +1,11 @@
 pub mod analyzer;
 pub mod config;
+pub mod custom_rules;
+pub mod evolution;
 pub mod graph;
 pub mod layer;
 pub mod metrics;
+pub mod metrics_report;
 pub mod types;
 
 pub use analyzer::{LanguageAnalyzer, ParsedFile};

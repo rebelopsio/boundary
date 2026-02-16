@@ -178,6 +178,9 @@ pub enum ViolationKind {
     MissingPort {
         adapter_name: String,
     },
+    CustomRule {
+        rule_name: String,
+    },
 }
 
 /// An architectural violation

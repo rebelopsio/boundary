@@ -5,16 +5,19 @@ members = [
   "crates/boundary-core",
   "crates/boundary-go",
   "crates/boundary-rust",
+  "crates/boundary-typescript",
+  "crates/boundary-java",
   "crates/boundary-report",
+  "crates/boundary-lsp",
 ]
 
 [workspace.package]
 version = "0.3.0"
 edition = "2021"
-authors = ["Stephen Caudill <your@email.com>"]
+authors = ["Stephen Morgan"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/stephencaudill/boundary"
-homepage = "https://github.com/stephencaudill/boundary"
+repository = "https://github.com/rebelopsio/boundary"
+homepage = "https://github.com/rebelopsio/boundary"
 keywords = ["architecture", "ddd", "hexagonal", "static-analysis", "linter"]
 categories = ["development-tools", "command-line-utilities"]
 
@@ -30,12 +33,21 @@ toml = "1.0"
 tree-sitter = "0.26"
 tree-sitter-go = "0.25"
 tree-sitter-rust = "0.24"
+tree-sitter-typescript = "0.23"
+tree-sitter-java = "0.23"
 
 # Graph and analysis
 petgraph = "0.8"
 walkdir = "2.5"
 ignore = "0.4"
 globset = "0.4"
+
+# Async / LSP
+tokio = { version = "1", features = ["full"] }
+tower-lsp = "0.20"
+
+# Hashing
+sha2 = "0.10"
 
 # CLI
 clap = { version = "4.5", features = ["derive"] }
@@ -51,9 +63,17 @@ tempfile = "3.14"
 boundary-core = { path = "crates/boundary-core" }
 boundary-go = { path = "crates/boundary-go" }
 boundary-rust = { path = "crates/boundary-rust" }
+boundary-typescript = { path = "crates/boundary-typescript" }
+boundary-java = { path = "crates/boundary-java" }
 boundary-report = { path = "crates/boundary-report" }
+boundary-lsp = { path = "crates/boundary-lsp" }
 
 [profile.release]
 lto = true
 codegen-units = 1
 strip = true
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

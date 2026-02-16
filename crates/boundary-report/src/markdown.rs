@@ -94,6 +94,9 @@ pub fn format_report(result: &AnalysisResult) -> String {
                     format!("missing port for {adapter_name}")
                 }
                 ViolationKind::CustomRule { rule_name } => format!("custom: {rule_name}"),
+                ViolationKind::DomainInfrastructureLeak { detail } => {
+                    format!("infra leak: {detail}")
+                }
             };
 
             out.push_str(&format!(

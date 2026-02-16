@@ -27,7 +27,7 @@ pub struct ProjectConfig {
 }
 
 fn default_languages() -> Vec<String> {
-    vec!["go".to_string()]
+    vec![]
 }
 
 impl Default for ProjectConfig {
@@ -226,7 +226,7 @@ impl Config {
     /// Generate default TOML content for `boundary init`.
     pub fn default_toml() -> String {
         r#"# Boundary - Architecture Analysis Configuration
-# See https://github.com/stephencaudill/boundary for documentation
+# See https://github.com/rebelopsio/boundary for documentation
 
 [project]
 languages = ["go"]
@@ -266,7 +266,10 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = Config::default();
-        assert_eq!(config.project.languages, vec!["go"]);
+        assert!(
+            config.project.languages.is_empty(),
+            "default should be empty for auto-detection"
+        );
         assert!(!config.layers.domain.is_empty());
         assert!((config.scoring.layer_isolation_weight - 0.4).abs() < f64::EPSILON);
     }
@@ -301,6 +304,7 @@ fail_on = "warning"
     fn test_default_toml_is_valid() {
         let toml_str = Config::default_toml();
         let config: Config = toml::from_str(&toml_str).unwrap();
+        // The template specifies "go" as a starter config
         assert_eq!(config.project.languages, vec!["go"]);
     }
 }

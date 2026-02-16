@@ -1,0 +1,20 @@
+[package]
+name = "boundary-java"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Java language analyzer for boundary"
+
+[dependencies]
+boundary-core.workspace = true
+
+anyhow.workspace = true
+thiserror.workspace = true
+tree-sitter.workspace = true
+tree-sitter-java.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

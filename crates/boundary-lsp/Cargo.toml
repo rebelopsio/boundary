@@ -1,17 +1,14 @@
 [package]
-name = "boundary"
+name = "boundary-lsp"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-homepage.workspace = true
-keywords.workspace = true
-categories.workspace = true
-description = "A static analysis tool for evaluating DDD and Hexagonal Architecture"
+description = "LSP server for boundary architecture analysis"
 
 [[bin]]
-name = "boundary"
+name = "boundary-lsp"
 path = "src/main.rs"
 
 [dependencies]
@@ -20,17 +17,10 @@ boundary-go.workspace = true
 boundary-rust.workspace = true
 boundary-typescript.workspace = true
 boundary-java.workspace = true
-boundary-report.workspace = true
 
 anyhow.workspace = true
-clap.workspace = true
-colored.workspace = true
-rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-toml.workspace = true
+tokio.workspace = true
+tower-lsp.workspace = true
 walkdir.workspace = true
-
-[dev-dependencies]
-serde_json.workspace = true
-tempfile.workspace = true

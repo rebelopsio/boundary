@@ -61,6 +61,9 @@ pub fn detect_violations(graph: &DependencyGraph, config: &Config) -> Vec<Violat
     // Circular dependency violations
     detect_circular_dependencies(graph, config, &mut violations);
 
+    // Pattern violations (DDD structural checks)
+    detect_pattern_violations(graph, config, &mut violations);
+
     // Custom rules
     if !config.rules.custom_rules.is_empty() {
         match crate::custom_rules::compile_rules(&config.rules.custom_rules) {
@@ -157,6 +160,161 @@ fn detect_circular_dependencies(
                     .to_string(),
             ),
         });
+    }
+}
+
+/// Infrastructure-related import path keywords.
+const INFRA_KEYWORDS: &[&str] = &[
+    "postgres",
+    "mysql",
+    "redis",
+    "mongo",
+    "database",
+    "sql",
+    "db",
+    "dynamodb",
+    "sqlite",
+    "cassandra",
+    "elasticsearch",
+];
+
+fn detect_pattern_violations(
+    graph: &DependencyGraph,
+    config: &Config,
+    violations: &mut Vec<Violation>,
+) {
+    let severity = config
+        .rules
+        .severities
+        .get("missing_port")
+        .copied()
+        .unwrap_or(Severity::Warning);
+
+    let nodes = graph.nodes();
+
+    // Collect port names for adapter-without-port check
+    let port_names: Vec<String> = nodes
+        .iter()
+        .filter(|n| {
+            let name_lower = n.name.to_lowercase();
+            name_lower.contains("port")
+                || name_lower.contains("interface")
+                || name_lower.contains("repository") && n.layer == Some(ArchLayer::Domain)
+        })
+        .map(|n| n.name.clone())
+        .collect();
+
+    // Check 1: Adapter without port
+    for node in &nodes {
+        let name_lower = node.name.to_lowercase();
+        let is_adapter = name_lower.ends_with("handler")
+            || name_lower.ends_with("controller")
+            || (node.layer == Some(ArchLayer::Infrastructure)
+                && (name_lower.contains("adapter") || name_lower.contains("impl")));
+
+        if !is_adapter {
+            continue;
+        }
+
+        // Check if there's a matching port name pattern
+        let has_port = port_names.iter().any(|port| {
+            let port_lower = port.to_lowercase();
+            // e.g., "UserHandler" matches "UserPort" or "UserRepository"
+            let adapter_base = name_lower
+                .trim_end_matches("handler")
+                .trim_end_matches("controller")
+                .trim_end_matches("adapter")
+                .trim_end_matches("impl");
+            let port_base = port_lower
+                .trim_end_matches("port")
+                .trim_end_matches("interface")
+                .trim_end_matches("repository");
+            !adapter_base.is_empty() && !port_base.is_empty() && adapter_base == port_base
+        });
+
+        if !has_port {
+            violations.push(Violation {
+                kind: ViolationKind::MissingPort {
+                    adapter_name: node.name.clone(),
+                },
+                severity,
+                location: SourceLocation {
+                    file: std::path::PathBuf::from("<pattern>"),
+                    line: 0,
+                    column: 0,
+                },
+                message: format!(
+                    "Adapter '{}' has no matching port interface",
+                    node.name
+                ),
+                suggestion: Some(
+                    "Create a port interface that this adapter implements to maintain proper boundaries."
+                        .to_string(),
+                ),
+            });
+        }
+    }
+
+    // Check 2: DB access in domain layer (domain importing infrastructure paths)
+    for (src, _tgt, edge) in graph.edges_with_nodes() {
+        if src.layer != Some(ArchLayer::Domain) {
+            continue;
+        }
+
+        if let Some(ref import_path) = edge.import_path {
+            let path_lower = import_path.to_lowercase();
+            if INFRA_KEYWORDS.iter().any(|kw| path_lower.contains(kw)) {
+                violations.push(Violation {
+                    kind: ViolationKind::DomainInfrastructureLeak {
+                        detail: format!("domain imports infrastructure path: {import_path}"),
+                    },
+                    severity: Severity::Error,
+                    location: edge.location.clone(),
+                    message: format!(
+                        "Domain layer directly imports infrastructure dependency '{import_path}'"
+                    ),
+                    suggestion: Some(
+                        "Domain should not reference infrastructure directly. \
+                         Use a repository interface (port) in the domain layer instead."
+                            .to_string(),
+                    ),
+                });
+            }
+        }
+    }
+
+    // Check 3: Domain entity directly depending on infrastructure component
+    for (src, tgt, edge) in graph.edges_with_nodes() {
+        if src.layer == Some(ArchLayer::Domain) && tgt.layer == Some(ArchLayer::Infrastructure) {
+            // Already covered by layer boundary violations, but add specific
+            // "missing repository pattern" detail if the target looks like a concrete impl
+            let tgt_lower = tgt.name.to_lowercase();
+            if tgt_lower.contains("postgres")
+                || tgt_lower.contains("mysql")
+                || tgt_lower.contains("redis")
+                || tgt_lower.contains("mongo")
+            {
+                violations.push(Violation {
+                    kind: ViolationKind::DomainInfrastructureLeak {
+                        detail: format!(
+                            "domain entity depends on concrete infrastructure: {}",
+                            tgt.name
+                        ),
+                    },
+                    severity: Severity::Error,
+                    location: edge.location.clone(),
+                    message: format!(
+                        "Domain component '{}' directly depends on infrastructure component '{}'",
+                        src.name, tgt.name
+                    ),
+                    suggestion: Some(
+                        "Introduce a repository interface in the domain layer and have the \
+                         infrastructure component implement it."
+                            .to_string(),
+                    ),
+                });
+            }
+        }
     }
 }
 
@@ -290,6 +448,7 @@ fn compute_metrics(
             ViolationKind::CircularDependency { .. } => "circular_dependency",
             ViolationKind::MissingPort { .. } => "missing_port",
             ViolationKind::CustomRule { .. } => "custom_rule",
+            ViolationKind::DomainInfrastructureLeak { .. } => "domain_infrastructure_leak",
         };
         *violations_by_kind.entry(kind_name.to_string()).or_insert(0) += 1;
     }

@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 use std::process;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+use rayon::prelude::*;
 use walkdir::WalkDir;
 
 use boundary_core::analyzer::LanguageAnalyzer;
@@ -13,7 +14,13 @@ use boundary_core::metrics;
 use boundary_core::types::Severity;
 
 use boundary_go::GoAnalyzer;
-use boundary_report::text;
+use boundary_report::{json, text};
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum OutputFormat {
+    Text,
+    Json,
+}
 
 #[derive(Parser)]
 #[command(name = "boundary")]
@@ -33,6 +40,12 @@ enum Commands {
         /// Config file path (defaults to .boundary.toml in project root)
         #[arg(short, long)]
         config: Option<PathBuf>,
+        /// Output format
+        #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+        format: OutputFormat,
+        /// Compact output (single-line JSON, no colors for text)
+        #[arg(long)]
+        compact: bool,
     },
     /// Analyze and exit with code 0 (pass) or 1 (fail)
     Check {
@@ -44,6 +57,12 @@ enum Commands {
         /// Config file path
         #[arg(short, long)]
         config: Option<PathBuf>,
+        /// Output format
+        #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+        format: OutputFormat,
+        /// Compact output (single-line JSON, no colors for text)
+        #[arg(long)]
+        compact: bool,
     },
     /// Create a default .boundary.toml configuration file
     Init {
@@ -57,12 +76,19 @@ fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        Commands::Analyze { path, config } => cmd_analyze(&path, config.as_deref()),
+        Commands::Analyze {
+            path,
+            config,
+            format,
+            compact,
+        } => cmd_analyze(&path, config.as_deref(), format, compact),
         Commands::Check {
             path,
             fail_on,
             config,
-        } => cmd_check(&path, &fail_on, config.as_deref()),
+            format,
+            compact,
+        } => cmd_check(&path, &fail_on, config.as_deref(), format, compact),
         Commands::Init { force } => cmd_init(force),
     };
 
@@ -72,20 +98,51 @@ fn main() {
     }
 }
 
-fn cmd_analyze(path: &Path, config_path: Option<&Path>) -> Result<()> {
-    let config = load_config(path, config_path)?;
-    let result = run_analysis(path, &config)?;
-    let report = text::format_report(&result);
-    print!("{report}");
+fn validate_path(path: &Path) -> Result<()> {
+    if !path.exists() {
+        anyhow::bail!("path '{}' does not exist", path.display());
+    }
+    if !path.is_dir() {
+        anyhow::bail!("path '{}' is not a directory", path.display());
+    }
     Ok(())
 }
 
-fn cmd_check(path: &Path, fail_on_str: &str, config_path: Option<&Path>) -> Result<()> {
+fn cmd_analyze(
+    path: &Path,
+    config_path: Option<&Path>,
+    format: OutputFormat,
+    compact: bool,
+) -> Result<()> {
+    validate_path(path)?;
+    let config = load_config(path, config_path)?;
+    let result = run_analysis(path, &config)?;
+
+    let report = match format {
+        OutputFormat::Text => text::format_report(&result),
+        OutputFormat::Json => json::format_report(&result, compact),
+    };
+    println!("{report}");
+    Ok(())
+}
+
+fn cmd_check(
+    path: &Path,
+    fail_on_str: &str,
+    config_path: Option<&Path>,
+    format: OutputFormat,
+    compact: bool,
+) -> Result<()> {
+    validate_path(path)?;
     let config = load_config(path, config_path)?;
     let fail_on: Severity = fail_on_str.parse()?;
     let result = run_analysis(path, &config)?;
-    let (report, passed) = text::format_check(&result, fail_on);
-    print!("{report}");
+
+    let (report, passed) = match format {
+        OutputFormat::Text => text::format_check(&result, fail_on),
+        OutputFormat::Json => json::format_check(&result, fail_on, compact),
+    };
+    println!("{report}");
     if !passed {
         process::exit(1);
     }
@@ -109,6 +166,19 @@ fn load_config(project_path: &Path, config_path: Option<&Path>) -> Result<Config
     }
 }
 
+/// Extracted per-file data before merging into the graph.
+struct FileResult {
+    components: Vec<(
+        boundary_core::types::Component,
+        Option<boundary_core::types::ArchLayer>,
+    )>,
+    dependencies: Vec<(
+        boundary_core::types::Dependency,
+        Option<boundary_core::types::ArchLayer>,
+        Option<boundary_core::types::ArchLayer>,
+    )>,
+}
+
 fn run_analysis(project_path: &Path, config: &Config) -> Result<metrics::AnalysisResult> {
     let analyzer = GoAnalyzer::new().context("failed to initialize Go analyzer")?;
     let classifier = LayerClassifier::new(&config.layers);
@@ -128,52 +198,82 @@ fn run_analysis(project_path: &Path, config: &Config) -> Result<metrics::Analysi
         .map(|e| e.into_path())
         .collect();
 
-    for file_path in &go_files {
-        let content = std::fs::read_to_string(file_path)
-            .with_context(|| format!("failed to read {}", file_path.display()))?;
+    if go_files.is_empty() {
+        eprintln!("Warning: no Go files found in '{}'", project_path.display());
+    }
 
-        let parsed = match analyzer.parse_file(file_path, &content) {
-            Ok(p) => p,
-            Err(e) => {
-                eprintln!("Warning: failed to parse {}: {e}", file_path.display());
-                continue;
-            }
-        };
+    // Parse and extract in parallel
+    let file_results: Vec<FileResult> = go_files
+        .par_iter()
+        .filter_map(|file_path| {
+            let content = match std::fs::read_to_string(file_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Warning: failed to read {}: {e}", file_path.display());
+                    return None;
+                }
+            };
 
-        // Extract and classify components
-        let mut components = analyzer.extract_components(&parsed);
-        let rel_path = file_path
-            .strip_prefix(project_path)
-            .unwrap_or(file_path)
-            .to_string_lossy();
+            let parsed = match analyzer.parse_file(file_path, &content) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("Warning: failed to parse {}: {e}", file_path.display());
+                    return None;
+                }
+            };
 
-        for comp in &mut components {
-            if comp.layer.is_none() {
-                comp.layer = classifier.classify(&rel_path);
-            }
-        }
+            let rel_path = file_path
+                .strip_prefix(project_path)
+                .unwrap_or(file_path)
+                .to_string_lossy();
 
-        for comp in &components {
+            // Extract and classify components
+            let mut components_raw = analyzer.extract_components(&parsed);
+            let file_layer = classifier.classify(&rel_path);
+
+            let components: Vec<_> = components_raw
+                .drain(..)
+                .map(|mut comp| {
+                    if comp.layer.is_none() {
+                        comp.layer = file_layer;
+                    }
+                    let layer = comp.layer;
+                    (comp, layer)
+                })
+                .collect();
+
+            // Extract dependencies with layer info
+            let deps = analyzer.extract_dependencies(&parsed);
+            let dependencies: Vec<_> = deps
+                .into_iter()
+                .map(|dep| {
+                    let to_layer = dep
+                        .import_path
+                        .as_deref()
+                        .and_then(|p| classifier.classify_import(p));
+                    let from_layer = classifier.classify(&rel_path);
+                    (dep, from_layer, to_layer)
+                })
+                .collect();
+
+            Some(FileResult {
+                components,
+                dependencies,
+            })
+        })
+        .collect();
+
+    // Merge results sequentially into graph
+    for fr in file_results {
+        for (comp, _) in &fr.components {
             graph.add_component(comp);
         }
-
-        // Extract and add dependencies
-        let deps = analyzer.extract_dependencies(&parsed);
-        for dep in &deps {
-            // Classify the target by import path
-            let to_layer = dep
-                .import_path
-                .as_deref()
-                .and_then(|p| classifier.classify_import(p));
-
-            // Ensure source node has a layer
-            let from_layer = classifier.classify(&rel_path);
-            graph.ensure_node(&dep.from, from_layer);
-            graph.ensure_node(&dep.to, to_layer);
-
+        for (dep, from_layer, to_layer) in &fr.dependencies {
+            graph.ensure_node(&dep.from, *from_layer);
+            graph.ensure_node(&dep.to, *to_layer);
             graph.add_dependency(dep);
         }
-        total_deps += deps.len();
+        total_deps += fr.dependencies.len();
     }
 
     Ok(metrics::build_result(&graph, config, total_deps))

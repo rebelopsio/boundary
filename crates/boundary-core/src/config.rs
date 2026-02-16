@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -168,8 +168,14 @@ impl Default for RulesConfig {
 impl Config {
     /// Load configuration from a `.boundary.toml` file.
     pub fn load(path: &Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)?;
-        let config: Config = toml::from_str(&content)?;
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read config file '{}'", path.display()))?;
+        let config: Config = toml::from_str(&content).with_context(|| {
+            format!(
+                "failed to parse '{}'. Run `boundary init` to create a valid config file",
+                path.display()
+            )
+        })?;
         Ok(config)
     }
 
@@ -177,7 +183,16 @@ impl Config {
     pub fn load_or_default(dir: &Path) -> Self {
         let config_path = dir.join(".boundary.toml");
         if config_path.exists() {
-            Self::load(&config_path).unwrap_or_default()
+            match Self::load(&config_path) {
+                Ok(config) => config,
+                Err(e) => {
+                    eprintln!(
+                        "Warning: failed to load config from '{}': {e:#}. Using defaults.",
+                        config_path.display()
+                    );
+                    Self::default()
+                }
+            }
         } else {
             Self::default()
         }

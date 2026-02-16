@@ -14,10 +14,10 @@ members = [
 [workspace.package]
 version = "0.3.0"
 edition = "2021"
-authors = ["Stephen Caudill <your@email.com>"]
+authors = ["Stephen Morgan"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/stephencaudill/boundary"
-homepage = "https://github.com/stephencaudill/boundary"
+repository = "https://github.com/rebelopsio/boundary"
+homepage = "https://github.com/rebelopsio/boundary"
 keywords = ["architecture", "ddd", "hexagonal", "static-analysis", "linter"]
 categories = ["development-tools", "command-line-utilities"]
 
@@ -72,3 +72,8 @@ boundary-lsp = { path = "crates/boundary-lsp" }
 lto = true
 codegen-units = 1
 strip = true
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

@@ -226,7 +226,7 @@ impl Config {
     /// Generate default TOML content for `boundary init`.
     pub fn default_toml() -> String {
         r#"# Boundary - Architecture Analysis Configuration
-# See https://github.com/stephencaudill/boundary for documentation
+# See https://github.com/rebelopsio/boundary for documentation
 
 [project]
 languages = ["go"]

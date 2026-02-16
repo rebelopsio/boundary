@@ -1,6 +1,56 @@
-[package]
-name = "boundary"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+resolver = "2"
+members = [
+  "crates/boundary",
+  "crates/boundary-core",
+  "crates/boundary-go",
+  "crates/boundary-rust",
+  "crates/boundary-report",
+]
 
-[dependencies]
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Stephen Caudill <your@email.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/stephencaudill/boundary"
+homepage = "https://github.com/stephencaudill/boundary"
+keywords = ["architecture", "ddd", "hexagonal", "static-analysis", "linter"]
+categories = ["development-tools", "command-line-utilities"]
+
+[workspace.dependencies]
+# Core dependencies shared across crates
+anyhow = "1.0"
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "1.0"
+
+# Tree-sitter
+tree-sitter = "0.26"
+tree-sitter-go = "0.25"
+tree-sitter-rust = "0.24"
+
+# Graph and analysis
+petgraph = "0.8"
+walkdir = "2.5"
+ignore = "0.4"
+globset = "0.4"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+colored = "3.1"
+
+# Testing
+tempfile = "3.14"
+
+# Internal workspace crates
+boundary-core = { path = "crates/boundary-core" }
+boundary-go = { path = "crates/boundary-go" }
+boundary-rust = { path = "crates/boundary-rust" }
+boundary-report = { path = "crates/boundary-report" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

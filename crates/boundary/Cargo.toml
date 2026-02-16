@@ -1,0 +1,32 @@
+[package]
+name = "boundary"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "A static analysis tool for evaluating DDD and Hexagonal Architecture"
+
+[[bin]]
+name = "boundary"
+path = "src/main.rs"
+
+[dependencies]
+boundary-core.workspace = true
+boundary-go.workspace = true
+boundary-rust.workspace = true
+boundary-report.workspace = true
+
+anyhow.workspace = true
+clap.workspace = true
+colored.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+walkdir.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

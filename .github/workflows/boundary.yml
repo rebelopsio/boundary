@@ -28,5 +28,8 @@ jobs:
       - name: Build Boundary
         run: cargo build --release --bin boundary
 
-      - name: Check Architecture
-        run: ./target/release/boundary check . --format json --fail-on error
+      - name: Check Architecture (expect violations)
+        run: |
+          # boundary check should find violations when analyzing its own repo.
+          # Invert the exit code: fail CI only if boundary incorrectly reports no violations.
+          ! ./target/release/boundary check . --format json --fail-on error

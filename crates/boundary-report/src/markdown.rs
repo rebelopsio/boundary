@@ -64,6 +64,30 @@ pub fn format_report(result: &AnalysisResult) -> String {
             "\n**Dependency Depth:** max={}, avg={:.1}\n",
             metrics.dependency_depth.max_depth, metrics.dependency_depth.avg_depth
         ));
+
+        if let Some(ref coverage) = metrics.classification_coverage {
+            out.push_str("\n### Classification Coverage\n\n");
+            out.push_str(&format!(
+                "**Coverage:** {:.1}% ({}/{})\n\n",
+                coverage.coverage_percentage,
+                coverage.classified + coverage.cross_cutting,
+                coverage.total_components
+            ));
+            out.push_str("| Category | Count |\n");
+            out.push_str("|----------|-------|\n");
+            out.push_str(&format!("| Classified | {} |\n", coverage.classified));
+            out.push_str(&format!("| Cross-cutting | {} |\n", coverage.cross_cutting));
+            out.push_str(&format!("| Unclassified | {} |\n", coverage.unclassified));
+
+            if !coverage.unclassified_paths.is_empty() {
+                out.push_str(
+                    "\n**Unclassified paths** (add patterns to `.boundary.toml` `[layers]`):\n\n",
+                );
+                for path in &coverage.unclassified_paths {
+                    out.push_str(&format!("- `{path}`\n"));
+                }
+            }
+        }
     }
 
     // Violations

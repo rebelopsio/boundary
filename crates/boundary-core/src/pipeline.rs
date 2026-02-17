@@ -23,7 +23,7 @@ pub struct FullAnalysis {
 /// Extracted per-file data before merging into the graph.
 struct FileResult {
     components: Vec<(Component, Option<ArchLayer>)>,
-    dependencies: Vec<(Dependency, Option<ArchLayer>, Option<ArchLayer>)>,
+    dependencies: Vec<(Dependency, Option<ArchLayer>, Option<ArchLayer>, bool)>,
 }
 
 /// Reusable analysis pipeline that can be shared between CLI and LSP.
@@ -119,6 +119,7 @@ impl AnalysisPipeline {
 
                     let mut components_raw = analyzer.extract_components(&parsed);
                     let file_layer = classifier.classify(&rel_path);
+                    let is_cross_cutting = classifier.is_cross_cutting(&rel_path);
 
                     let components: Vec<_> = components_raw
                         .drain(..)
@@ -126,6 +127,7 @@ impl AnalysisPipeline {
                             if comp.layer.is_none() {
                                 comp.layer = file_layer;
                             }
+                            comp.is_cross_cutting = is_cross_cutting;
                             let layer = comp.layer;
                             (comp, layer)
                         })
@@ -140,7 +142,7 @@ impl AnalysisPipeline {
                                 .as_deref()
                                 .and_then(|p| classifier.classify_import(p));
                             let from_layer = classifier.classify(&rel_path);
-                            (dep, from_layer, to_layer)
+                            (dep, from_layer, to_layer, is_cross_cutting)
                         })
                         .collect();
 
@@ -156,9 +158,9 @@ impl AnalysisPipeline {
                     graph.add_component(comp);
                     all_components.push(comp.clone());
                 }
-                for (dep, from_layer, to_layer) in &fr.dependencies {
-                    graph.ensure_node(&dep.from, *from_layer);
-                    graph.ensure_node(&dep.to, *to_layer);
+                for (dep, from_layer, to_layer, is_cc) in &fr.dependencies {
+                    graph.ensure_node(&dep.from, *from_layer, *is_cc);
+                    graph.ensure_node(&dep.to, *to_layer, false);
                     graph.add_dependency(dep);
                     all_dependencies.push(dep.clone());
                 }
@@ -233,6 +235,8 @@ impl AnalysisPipeline {
                         .to_string_lossy()
                         .to_string();
 
+                    let is_cross_cutting = classifier.is_cross_cutting(&rel_path);
+
                     if incremental {
                         if let Some(cached) = cache.get(&rel_path, &content) {
                             let file_layer = classifier.classify(&rel_path);
@@ -244,6 +248,7 @@ impl AnalysisPipeline {
                                     if comp.layer.is_none() {
                                         comp.layer = file_layer;
                                     }
+                                    comp.is_cross_cutting = is_cross_cutting;
                                     let layer = comp.layer;
                                     (comp, layer)
                                 })
@@ -258,7 +263,7 @@ impl AnalysisPipeline {
                                         .as_deref()
                                         .and_then(|p| classifier.classify_import(p));
                                     let from_layer = classifier.classify(&rel_path);
-                                    (dep.clone(), from_layer, to_layer)
+                                    (dep.clone(), from_layer, to_layer, is_cross_cutting)
                                 })
                                 .collect();
 
@@ -290,6 +295,7 @@ impl AnalysisPipeline {
                             if comp.layer.is_none() {
                                 comp.layer = file_layer;
                             }
+                            comp.is_cross_cutting = is_cross_cutting;
                             let layer = comp.layer;
                             (comp, layer)
                         })
@@ -304,7 +310,7 @@ impl AnalysisPipeline {
                                 .as_deref()
                                 .and_then(|p| classifier.classify_import(p));
                             let from_layer = classifier.classify(&rel_path);
-                            (dep, from_layer, to_layer)
+                            (dep, from_layer, to_layer, is_cross_cutting)
                         })
                         .collect();
 
@@ -329,7 +335,7 @@ impl AnalysisPipeline {
                     let cached_deps: Vec<_> = fr
                         .dependencies
                         .iter()
-                        .map(|(dep, _, _)| dep.clone())
+                        .map(|(dep, _, _, _)| dep.clone())
                         .collect();
                     cache.insert(
                         rel_path,
@@ -346,9 +352,9 @@ impl AnalysisPipeline {
                     graph.add_component(comp);
                     all_components.push(comp.clone());
                 }
-                for (dep, from_layer, to_layer) in &fr.dependencies {
-                    graph.ensure_node(&dep.from, *from_layer);
-                    graph.ensure_node(&dep.to, *to_layer);
+                for (dep, from_layer, to_layer, is_cc) in &fr.dependencies {
+                    graph.ensure_node(&dep.from, *from_layer, *is_cc);
+                    graph.ensure_node(&dep.to, *to_layer, false);
                     graph.add_dependency(dep);
                     all_dependencies.push(dep.clone());
                 }

@@ -4,6 +4,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::ArchLayer;
 
+/// Classification coverage: how much of the codebase is classified into layers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClassificationCoverage {
+    pub total_components: usize,
+    pub classified: usize,
+    pub cross_cutting: usize,
+    pub unclassified: usize,
+    pub coverage_percentage: f64,
+    pub unclassified_paths: Vec<String>,
+}
+
 /// Detailed metrics beyond scores.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricsReport {
@@ -12,6 +23,8 @@ pub struct MetricsReport {
     pub violations_by_kind: HashMap<String, usize>,
     pub dependency_depth: DependencyDepthMetrics,
     pub layer_coupling: LayerCouplingMatrix,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classification_coverage: Option<ClassificationCoverage>,
 }
 
 /// Dependency depth metrics.

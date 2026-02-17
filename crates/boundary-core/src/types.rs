@@ -136,6 +136,8 @@ pub struct Component {
     pub kind: ComponentKind,
     pub layer: Option<ArchLayer>,
     pub location: SourceLocation,
+    #[serde(default)]
+    pub is_cross_cutting: bool,
 }
 
 /// Kind of dependency relationship

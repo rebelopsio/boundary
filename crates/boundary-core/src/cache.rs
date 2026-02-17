@@ -192,6 +192,7 @@ mod tests {
                 line: 1,
                 column: 1,
             },
+            is_cross_cutting: false,
         };
 
         cache.insert(

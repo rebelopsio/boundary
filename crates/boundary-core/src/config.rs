@@ -70,6 +70,8 @@ pub struct LayersConfig {
     pub presentation: Vec<String>,
     #[serde(default)]
     pub overrides: Vec<LayerOverrideConfig>,
+    #[serde(default)]
+    pub cross_cutting: Vec<String>,
 }
 
 fn default_domain_patterns() -> Vec<String> {
@@ -114,6 +116,7 @@ impl Default for LayersConfig {
             infrastructure: default_infrastructure_patterns(),
             presentation: default_presentation_patterns(),
             overrides: Vec::new(),
+            cross_cutting: Vec::new(),
         }
     }
 }
@@ -256,6 +259,9 @@ application = ["**/application/**", "**/usecase/**", "**/service/**"]
 infrastructure = ["**/infrastructure/**", "**/adapter/**", "**/repository/**", "**/persistence/**"]
 presentation = ["**/presentation/**", "**/handler/**", "**/api/**", "**/cmd/**"]
 
+# Paths exempt from layer violation checks (cross-cutting concerns)
+# cross_cutting = ["common/utils/**", "pkg/logger/**", "pkg/errors/**"]
+
 # Per-module overrides — matched by scope, first match wins.
 # Omitted layers fall back to global patterns above.
 # [[layers.overrides]]
@@ -375,5 +381,32 @@ domain = ["**/domain/**"]
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert!(config.layers.overrides.is_empty());
+    }
+
+    #[test]
+    fn test_deserialize_cross_cutting() {
+        let toml_str = r#"
+[layers]
+domain = ["**/domain/**"]
+application = ["**/application/**"]
+infrastructure = ["**/infrastructure/**"]
+presentation = ["**/handler/**"]
+cross_cutting = ["common/utils/**", "pkg/logger/**", "pkg/errors/**"]
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.layers.cross_cutting.len(), 3);
+        assert_eq!(config.layers.cross_cutting[0], "common/utils/**");
+        assert_eq!(config.layers.cross_cutting[1], "pkg/logger/**");
+        assert_eq!(config.layers.cross_cutting[2], "pkg/errors/**");
+    }
+
+    #[test]
+    fn test_missing_cross_cutting_backward_compatible() {
+        let toml_str = r#"
+[layers]
+domain = ["**/domain/**"]
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.layers.cross_cutting.is_empty());
     }
 }

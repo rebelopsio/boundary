@@ -27,3 +27,6 @@ target
 
 # IDE files
 .idea/
+
+# mdBook build output
+docs/book/

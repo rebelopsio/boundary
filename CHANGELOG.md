@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/rebelopsio/boundary/compare/v0.5.0...v0.5.1) (2026-02-17)
+
+
+### Bug Fixes
+
+* violations and integration tests ([#21](https://github.com/rebelopsio/boundary/issues/21)) ([6076d1c](https://github.com/rebelopsio/boundary/commit/6076d1c85e42e57fcee14c655db151de82b08294))
+
 ## [0.5.0](https://github.com/rebelopsio/boundary/compare/v0.4.1...v0.5.0) (2026-02-17)
 
 

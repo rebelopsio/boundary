@@ -329,11 +329,16 @@ fn cmd_forensics(
 ) -> Result<()> {
     validate_path(module_path)?;
 
+    // Canonicalize so find_project_root walks absolute ancestors
+    let module_path = module_path
+        .canonicalize()
+        .with_context(|| format!("failed to resolve path '{}'", module_path.display()))?;
+
     // Determine project root
     let project_root = if let Some(root) = project_root_override {
         root.to_path_buf()
     } else {
-        pipeline::find_project_root(module_path).unwrap_or_else(|| module_path.to_path_buf())
+        pipeline::find_project_root(&module_path).unwrap_or_else(|| module_path.to_path_buf())
     };
 
     validate_path(&project_root)?;
@@ -342,9 +347,9 @@ fn cmd_forensics(
     let analyzers = create_analyzers(&project_root, &config, languages)?;
     let pipeline = AnalysisPipeline::new(analyzers, config);
 
-    let full_analysis = pipeline.analyze_module(module_path, &project_root)?;
+    let full_analysis = pipeline.analyze_module(&module_path, &project_root)?;
     let forensics =
-        boundary_core::forensics::build_forensics(&full_analysis, module_path, &project_root);
+        boundary_core::forensics::build_forensics(&full_analysis, &module_path, &project_root);
     let report = boundary_report::forensics::format_forensics_report(&forensics);
 
     if let Some(out_path) = output_path {

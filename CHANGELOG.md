@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/rebelopsio/boundary/compare/v0.4.1...v0.5.0) (2026-02-17)
+
+
+### Features
+
+* add forensics command ([#19](https://github.com/rebelopsio/boundary/issues/19)) ([b2fcaab](https://github.com/rebelopsio/boundary/commit/b2fcaabbf23d7c8c9747a34d32ad63b9ecd57e3b))
+
 ## [0.4.1](https://github.com/rebelopsio/boundary/compare/v0.4.0...v0.4.1) (2026-02-17)
 
 

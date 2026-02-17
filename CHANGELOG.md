@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/rebelopsio/boundary/compare/v0.5.1...v0.6.0) (2026-02-17)
+
+
+### Features
+
+* configurable layer classification patterns ([#23](https://github.com/rebelopsio/boundary/issues/23)) ([873fde9](https://github.com/rebelopsio/boundary/commit/873fde9c65aa14ef36597a4c36b3f14ff9b14e6d))
+
 ## [0.5.1](https://github.com/rebelopsio/boundary/compare/v0.5.0...v0.5.1) (2026-02-17)
 
 

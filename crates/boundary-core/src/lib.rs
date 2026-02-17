@@ -3,6 +3,7 @@ pub mod cache;
 pub mod config;
 pub mod custom_rules;
 pub mod evolution;
+pub mod forensics;
 pub mod graph;
 pub mod layer;
 pub mod metrics;

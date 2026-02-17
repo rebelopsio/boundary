@@ -38,7 +38,8 @@ impl RustAnalyzer {
               name: (type_identifier) @name
               body: (field_declaration_list
                 (field_declaration
-                  name: (field_identifier) @field)*)?)
+                  name: (field_identifier) @field
+                  type: (_) @field_type)*)?)
             "#,
         )
         .context("failed to compile struct query")?;
@@ -191,7 +192,11 @@ fn extract_traits(
                 start_row = capture.node.start_position().row;
                 start_col = capture.node.start_position().column;
             } else if Some(capture.index as usize) == method_idx {
-                methods.push(node_text(capture.node, &parsed.content));
+                methods.push(MethodInfo {
+                    name: node_text(capture.node, &parsed.content),
+                    parameters: String::new(),
+                    return_type: String::new(),
+                });
             }
         }
 
@@ -226,6 +231,10 @@ fn extract_structs(
         .position(|n| *n == "name")
         .unwrap_or(0);
     let field_idx = query.capture_names().iter().position(|n| *n == "field");
+    let field_type_idx = query
+        .capture_names()
+        .iter()
+        .position(|n| *n == "field_type");
 
     let mut matches = cursor.matches(query, parsed.tree.root_node(), parsed.content.as_bytes());
 
@@ -235,13 +244,24 @@ fn extract_structs(
         let mut start_row = 0;
         let mut start_col = 0;
 
+        let mut current_field_name = String::new();
+
         for capture in m.captures {
             if capture.index as usize == name_idx {
                 name = node_text(capture.node, &parsed.content);
                 start_row = capture.node.start_position().row;
                 start_col = capture.node.start_position().column;
             } else if Some(capture.index as usize) == field_idx {
-                fields.push(node_text(capture.node, &parsed.content));
+                current_field_name = node_text(capture.node, &parsed.content);
+            } else if Some(capture.index as usize) == field_type_idx {
+                let type_name = node_text(capture.node, &parsed.content);
+                if !current_field_name.is_empty() {
+                    fields.push(FieldInfo {
+                        name: current_field_name.clone(),
+                        type_name,
+                    });
+                    current_field_name = String::new();
+                }
             }
         }
 
@@ -324,8 +344,8 @@ fn enrich_with_impls(
     }
 }
 
-/// Classify a struct by its name suffix heuristic (same as Go analyzer).
-fn classify_struct_kind(name: &str, fields: &[String]) -> ComponentKind {
+/// Classify a struct by its name suffix heuristic.
+fn classify_struct_kind(name: &str, fields: &[FieldInfo]) -> ComponentKind {
     let lower = name.to_lowercase();
     if lower.ends_with("repository") || lower.ends_with("repo") {
         ComponentKind::Repository
@@ -338,10 +358,23 @@ fn classify_struct_kind(name: &str, fields: &[String]) -> ComponentKind {
         })
     } else if lower.ends_with("usecase") || lower.ends_with("interactor") {
         ComponentKind::UseCase
+    } else if lower.ends_with("event") {
+        ComponentKind::DomainEvent(EventInfo {
+            name: name.to_string(),
+            fields: fields.to_vec(),
+        })
+    } else if !fields.is_empty()
+        && !fields.iter().any(|f| {
+            let fl = f.name.to_lowercase();
+            fl == "id" || fl == "uuid"
+        })
+    {
+        ComponentKind::ValueObject
     } else {
         ComponentKind::Entity(EntityInfo {
             name: name.to_string(),
             fields: fields.to_vec(),
+            methods: Vec::new(),
         })
     }
 }
@@ -352,7 +385,7 @@ fn node_text(node: tree_sitter::Node, source: &str) -> String {
 }
 
 /// Derive a module path from a file path.
-/// e.g., "src/domain/user/mod.rs" → "src/domain/user"
+/// e.g., "src/domain/user/mod.rs" -> "src/domain/user"
 fn derive_module_path(path: &Path) -> String {
     let path_str = path.to_string_lossy().replace('\\', "/");
     // Remove filename, keeping just the directory
@@ -397,8 +430,8 @@ pub struct User {
         assert!(matches!(trait_comp.unwrap().kind, ComponentKind::Port(_)));
 
         if let ComponentKind::Port(ref info) = trait_comp.unwrap().kind {
-            assert!(info.methods.contains(&"save".to_string()));
-            assert!(info.methods.contains(&"find_by_id".to_string()));
+            assert!(info.methods.iter().any(|m| m.name == "save"));
+            assert!(info.methods.iter().any(|m| m.name == "find_by_id"));
         }
 
         let entity = components.iter().find(|c| c.name == "User");

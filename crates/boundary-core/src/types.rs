@@ -71,6 +71,28 @@ impl fmt::Display for ArchLayer {
     }
 }
 
+/// Information about a struct/class field
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FieldInfo {
+    pub name: String,
+    pub type_name: String,
+}
+
+/// Information about a method
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MethodInfo {
+    pub name: String,
+    pub parameters: String,
+    pub return_type: String,
+}
+
+/// Information about a domain event
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventInfo {
+    pub name: String,
+    pub fields: Vec<FieldInfo>,
+}
+
 /// Kind of architectural component
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ComponentKind {
@@ -81,13 +103,14 @@ pub enum ComponentKind {
     UseCase,
     Repository,
     Service,
+    DomainEvent(EventInfo),
 }
 
 /// Information about a port (interface)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortInfo {
     pub name: String,
-    pub methods: Vec<String>,
+    pub methods: Vec<MethodInfo>,
 }
 
 /// Information about an adapter (implementation)
@@ -101,7 +124,8 @@ pub struct AdapterInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntityInfo {
     pub name: String,
-    pub fields: Vec<String>,
+    pub fields: Vec<FieldInfo>,
+    pub methods: Vec<MethodInfo>,
 }
 
 /// A discovered architectural component

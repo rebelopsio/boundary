@@ -205,7 +205,11 @@ fn extract_interfaces(
                 start_row = capture.node.start_position().row;
                 start_col = capture.node.start_position().column;
             } else if Some(capture.index as usize) == method_idx {
-                methods.push(node_text(capture.node, &parsed.content));
+                methods.push(MethodInfo {
+                    name: node_text(capture.node, &parsed.content),
+                    parameters: String::new(),
+                    return_type: String::new(),
+                });
             }
         }
 
@@ -362,6 +366,7 @@ fn classify_class_kind(name: &str, implements: &[String]) -> ComponentKind {
         ComponentKind::Entity(EntityInfo {
             name: name.to_string(),
             fields: vec![],
+            methods: Vec::new(),
         })
     }
 }
@@ -372,7 +377,6 @@ fn node_text(node: tree_sitter::Node, source: &str) -> String {
 }
 
 /// Derive a package path from a file path.
-/// e.g., "src/main/java/com/example/domain/user/User.java" → "src/main/java/com/example/domain/user"
 fn derive_package_path(path: &Path) -> String {
     path.parent()
         .map(|p| p.to_string_lossy().replace('\\', "/"))
@@ -404,8 +408,8 @@ public interface UserRepository {
         assert!(matches!(repo.unwrap().kind, ComponentKind::Port(_)));
 
         if let ComponentKind::Port(ref info) = repo.unwrap().kind {
-            assert!(info.methods.contains(&"save".to_string()));
-            assert!(info.methods.contains(&"findById".to_string()));
+            assert!(info.methods.iter().any(|m| m.name == "save"));
+            assert!(info.methods.iter().any(|m| m.name == "findById"));
         }
     }
 

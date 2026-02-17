@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -12,7 +13,7 @@ pub struct GoAnalyzer {
     interface_query: Query,
     struct_query: Query,
     import_query: Query,
-    _func_query: Query,
+    method_query: Query,
 }
 
 impl GoAnalyzer {
@@ -27,7 +28,9 @@ impl GoAnalyzer {
                 name: (type_identifier) @name
                 type: (interface_type
                   (method_elem
-                    name: (field_identifier) @method)*)))
+                    name: (field_identifier) @method_name
+                    parameters: (parameter_list) @params
+                    result: (_)? @return_type)*)))
             "#,
         )
         .context("failed to compile interface query")?;
@@ -41,7 +44,8 @@ impl GoAnalyzer {
                 type: (struct_type
                   (field_declaration_list
                     (field_declaration
-                      name: (field_identifier) @field)*))))
+                      name: (field_identifier) @field_name
+                      type: (_) @field_type)*))))
             "#,
         )
         .context("failed to compile struct query")?;
@@ -55,21 +59,27 @@ impl GoAnalyzer {
         )
         .context("failed to compile import query")?;
 
-        let func_query = Query::new(
+        let method_query = Query::new(
             &language,
             r#"
-            (function_declaration
-              name: (identifier) @name)
+            (method_declaration
+              receiver: (parameter_list
+                (parameter_declaration
+                  type: [(pointer_type (type_identifier) @receiver_type)
+                         (type_identifier) @receiver_type]))
+              name: (field_identifier) @method_name
+              parameters: (parameter_list) @params
+              result: (_)? @return_type)
             "#,
         )
-        .context("failed to compile function query")?;
+        .context("failed to compile method query")?;
 
         Ok(Self {
             language,
             interface_query,
             struct_query,
             import_query,
-            _func_query: func_query,
+            method_query,
         })
     }
 }
@@ -107,6 +117,10 @@ impl LanguageAnalyzer for GoAnalyzer {
 
         // Extract structs
         extract_structs(&self.struct_query, parsed, &pkg, &mut components);
+
+        // Extract methods and associate with receiver structs
+        let methods = extract_methods(&self.method_query, parsed);
+        associate_methods(&mut components, &methods);
 
         components
     }
@@ -170,7 +184,15 @@ fn extract_interfaces(
         .iter()
         .position(|n| *n == "name")
         .unwrap_or(0);
-    let method_idx = query.capture_names().iter().position(|n| *n == "method");
+    let method_name_idx = query
+        .capture_names()
+        .iter()
+        .position(|n| *n == "method_name");
+    let params_idx = query.capture_names().iter().position(|n| *n == "params");
+    let return_type_idx = query
+        .capture_names()
+        .iter()
+        .position(|n| *n == "return_type");
 
     let mut matches = cursor.matches(query, parsed.tree.root_node(), parsed.content.as_bytes());
 
@@ -180,14 +202,42 @@ fn extract_interfaces(
         let mut start_row = 0;
         let mut start_col = 0;
 
+        // Collect method data from captures
+        let mut current_method_name = String::new();
+        let mut current_params = String::new();
+        let mut current_return = String::new();
+
         for capture in m.captures {
             if capture.index as usize == name_idx {
                 name = node_text(capture.node, &parsed.content);
                 start_row = capture.node.start_position().row;
                 start_col = capture.node.start_position().column;
-            } else if Some(capture.index as usize) == method_idx {
-                methods.push(node_text(capture.node, &parsed.content));
+            } else if Some(capture.index as usize) == method_name_idx {
+                // Save previous method if any
+                if !current_method_name.is_empty() {
+                    methods.push(MethodInfo {
+                        name: current_method_name.clone(),
+                        parameters: current_params.clone(),
+                        return_type: current_return.clone(),
+                    });
+                }
+                current_method_name = node_text(capture.node, &parsed.content);
+                current_params = String::new();
+                current_return = String::new();
+            } else if Some(capture.index as usize) == params_idx {
+                current_params = node_text(capture.node, &parsed.content);
+            } else if Some(capture.index as usize) == return_type_idx {
+                current_return = node_text(capture.node, &parsed.content);
             }
+        }
+
+        // Save last method
+        if !current_method_name.is_empty() {
+            methods.push(MethodInfo {
+                name: current_method_name,
+                parameters: current_params,
+                return_type: current_return,
+            });
         }
 
         if name.is_empty() {
@@ -198,7 +248,7 @@ fn extract_interfaces(
             id: ComponentId::new(pkg, &name),
             name: name.clone(),
             kind: ComponentKind::Port(PortInfo { name, methods }),
-            layer: None, // Will be classified later by LayerClassifier
+            layer: None,
             location: SourceLocation {
                 file: parsed.path.clone(),
                 line: start_row + 1,
@@ -215,7 +265,14 @@ fn extract_structs(query: &Query, parsed: &ParsedFile, pkg: &str, components: &m
         .iter()
         .position(|n| *n == "name")
         .unwrap_or(0);
-    let field_idx = query.capture_names().iter().position(|n| *n == "field");
+    let field_name_idx = query
+        .capture_names()
+        .iter()
+        .position(|n| *n == "field_name");
+    let field_type_idx = query
+        .capture_names()
+        .iter()
+        .position(|n| *n == "field_type");
 
     let mut matches = cursor.matches(query, parsed.tree.root_node(), parsed.content.as_bytes());
 
@@ -225,13 +282,24 @@ fn extract_structs(query: &Query, parsed: &ParsedFile, pkg: &str, components: &m
         let mut start_row = 0;
         let mut start_col = 0;
 
+        let mut current_field_name = String::new();
+
         for capture in m.captures {
             if capture.index as usize == name_idx {
                 name = node_text(capture.node, &parsed.content);
                 start_row = capture.node.start_position().row;
                 start_col = capture.node.start_position().column;
-            } else if Some(capture.index as usize) == field_idx {
-                fields.push(node_text(capture.node, &parsed.content));
+            } else if Some(capture.index as usize) == field_name_idx {
+                current_field_name = node_text(capture.node, &parsed.content);
+            } else if Some(capture.index as usize) == field_type_idx {
+                let type_name = node_text(capture.node, &parsed.content);
+                if !current_field_name.is_empty() {
+                    fields.push(FieldInfo {
+                        name: current_field_name.clone(),
+                        type_name,
+                    });
+                    current_field_name = String::new();
+                }
             }
         }
 
@@ -255,8 +323,77 @@ fn extract_structs(query: &Query, parsed: &ParsedFile, pkg: &str, components: &m
     }
 }
 
+/// Extract methods from method declarations and group by receiver type.
+fn extract_methods(query: &Query, parsed: &ParsedFile) -> HashMap<String, Vec<MethodInfo>> {
+    let mut methods: HashMap<String, Vec<MethodInfo>> = HashMap::new();
+
+    let mut cursor = QueryCursor::new();
+    let receiver_type_idx = query
+        .capture_names()
+        .iter()
+        .position(|n| *n == "receiver_type");
+    let method_name_idx = query
+        .capture_names()
+        .iter()
+        .position(|n| *n == "method_name");
+    let params_idx = query.capture_names().iter().position(|n| *n == "params");
+    let return_type_idx = query
+        .capture_names()
+        .iter()
+        .position(|n| *n == "return_type");
+
+    let mut matches = cursor.matches(query, parsed.tree.root_node(), parsed.content.as_bytes());
+
+    while let Some(m) = matches.next() {
+        let mut receiver = String::new();
+        let mut method_name = String::new();
+        let mut params = String::new();
+        let mut return_type = String::new();
+
+        for capture in m.captures {
+            if Some(capture.index as usize) == receiver_type_idx {
+                receiver = node_text(capture.node, &parsed.content);
+            } else if Some(capture.index as usize) == method_name_idx {
+                method_name = node_text(capture.node, &parsed.content);
+            } else if Some(capture.index as usize) == params_idx {
+                params = node_text(capture.node, &parsed.content);
+            } else if Some(capture.index as usize) == return_type_idx {
+                return_type = node_text(capture.node, &parsed.content);
+            }
+        }
+
+        if !receiver.is_empty() && !method_name.is_empty() {
+            methods.entry(receiver).or_default().push(MethodInfo {
+                name: method_name,
+                parameters: params,
+                return_type,
+            });
+        }
+    }
+
+    methods
+}
+
+/// Associate extracted methods with their receiver struct components.
+fn associate_methods(components: &mut [Component], methods: &HashMap<String, Vec<MethodInfo>>) {
+    for component in components.iter_mut() {
+        if let Some(struct_methods) = methods.get(&component.name) {
+            match &mut component.kind {
+                ComponentKind::Entity(info) => {
+                    info.methods = struct_methods.clone();
+                }
+                ComponentKind::DomainEvent(info) => {
+                    // Domain events typically don't have methods, but store if found
+                    let _ = info;
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 /// Classify a struct by its name suffix heuristic.
-fn classify_struct_kind(name: &str, fields: &[String]) -> ComponentKind {
+fn classify_struct_kind(name: &str, fields: &[FieldInfo]) -> ComponentKind {
     let lower = name.to_lowercase();
     if lower.ends_with("repository") || lower.ends_with("repo") {
         ComponentKind::Repository
@@ -269,10 +406,25 @@ fn classify_struct_kind(name: &str, fields: &[String]) -> ComponentKind {
         })
     } else if lower.ends_with("usecase") || lower.ends_with("interactor") {
         ComponentKind::UseCase
+    } else if lower.ends_with("event") {
+        // Domain event detection
+        ComponentKind::DomainEvent(EventInfo {
+            name: name.to_string(),
+            fields: fields.to_vec(),
+        })
+    } else if !fields.is_empty()
+        && !fields.iter().any(|f| {
+            let fl = f.name.to_lowercase();
+            fl == "id" || fl == "uuid"
+        })
+    {
+        // Value object heuristic: no identity field
+        ComponentKind::ValueObject
     } else {
         ComponentKind::Entity(EntityInfo {
             name: name.to_string(),
             fields: fields.to_vec(),
+            methods: Vec::new(),
         })
     }
 }
@@ -283,7 +435,7 @@ fn node_text(node: tree_sitter::Node, source: &str) -> String {
 }
 
 /// Derive a package path from a file path.
-/// e.g., "internal/domain/user/entity.go" → "internal/domain/user"
+/// e.g., "internal/domain/user/entity.go" -> "internal/domain/user"
 fn derive_package_path(path: &Path) -> String {
     path.parent()
         .map(|p| p.to_string_lossy().replace('\\', "/"))
@@ -325,8 +477,29 @@ type User struct {
         assert!(interface.is_some(), "should find UserRepository interface");
         assert!(matches!(interface.unwrap().kind, ComponentKind::Port(_)));
 
+        if let ComponentKind::Port(ref info) = interface.unwrap().kind {
+            assert!(
+                info.methods.iter().any(|m| m.name == "Save"),
+                "should have Save method"
+            );
+            assert!(
+                info.methods.iter().any(|m| m.name == "FindByID"),
+                "should have FindByID method"
+            );
+        }
+
         let entity = components.iter().find(|c| c.name == "User");
         assert!(entity.is_some(), "should find User struct");
+        if let ComponentKind::Entity(ref info) = entity.unwrap().kind {
+            assert!(
+                info.fields.iter().any(|f| f.name == "ID"),
+                "should have ID field"
+            );
+            assert!(
+                info.fields.iter().any(|f| f.name == "Name"),
+                "should have Name field"
+            );
+        }
     }
 
     #[test]
@@ -355,5 +528,119 @@ func main() {
             .collect();
         assert!(paths.contains(&"fmt"));
         assert!(paths.contains(&"github.com/example/app/internal/infrastructure/postgres"));
+    }
+
+    #[test]
+    fn test_domain_event_detection() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        let content = r#"
+package events
+
+type PaymentSucceededEvent struct {
+    PaymentID string
+    Amount    float64
+}
+"#;
+        let path = PathBuf::from("internal/domain/events/payment.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let event = components
+            .iter()
+            .find(|c| c.name == "PaymentSucceededEvent");
+        assert!(event.is_some(), "should find PaymentSucceededEvent");
+        assert!(
+            matches!(event.unwrap().kind, ComponentKind::DomainEvent(_)),
+            "should be classified as DomainEvent"
+        );
+    }
+
+    #[test]
+    fn test_value_object_detection() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        let content = r#"
+package domain
+
+type Money struct {
+    Amount   float64
+    Currency string
+}
+"#;
+        let path = PathBuf::from("internal/domain/money.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let vo = components.iter().find(|c| c.name == "Money");
+        assert!(vo.is_some(), "should find Money");
+        assert!(
+            matches!(vo.unwrap().kind, ComponentKind::ValueObject),
+            "should be classified as ValueObject (no ID field)"
+        );
+    }
+
+    #[test]
+    fn test_method_extraction() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        let content = r#"
+package user
+
+type User struct {
+    ID   string
+    Name string
+}
+
+func (u *User) ChangeName(name string) error {
+    u.Name = name
+    return nil
+}
+
+func (u *User) Validate() error {
+    return nil
+}
+"#;
+        let path = PathBuf::from("internal/domain/user/entity.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let entity = components.iter().find(|c| c.name == "User");
+        assert!(entity.is_some(), "should find User");
+        if let ComponentKind::Entity(ref info) = entity.unwrap().kind {
+            assert_eq!(info.methods.len(), 2, "should have 2 methods");
+            assert!(
+                info.methods.iter().any(|m| m.name == "ChangeName"),
+                "should have ChangeName method"
+            );
+            assert!(
+                info.methods.iter().any(|m| m.name == "Validate"),
+                "should have Validate method"
+            );
+        } else {
+            panic!("expected Entity kind");
+        }
+    }
+
+    #[test]
+    fn test_field_types() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        let content = r#"
+package user
+
+type User struct {
+    ID        string
+    Name      string
+    CreatedAt time.Time
+}
+"#;
+        let path = PathBuf::from("internal/domain/user/entity.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let entity = components.iter().find(|c| c.name == "User");
+        assert!(entity.is_some());
+        if let ComponentKind::Entity(ref info) = entity.unwrap().kind {
+            let id_field = info.fields.iter().find(|f| f.name == "ID");
+            assert!(id_field.is_some());
+            assert_eq!(id_field.unwrap().type_name, "string");
+        }
     }
 }

@@ -40,6 +40,9 @@ boundary check /path/to/repo --fail-on error
 
 # JSON output for CI parsing
 boundary check /path/to/repo --format json --fail-on error
+
+# Deep forensics report for a specific module
+boundary forensics /path/to/module
 ```
 
 ## Configuration
@@ -183,6 +186,33 @@ jobs:
 
 See `.github/workflows/boundary.yml` for a working example.
 
+## Module Forensics
+
+The `forensics` command generates a deep-dive markdown report for a specific module or directory, covering:
+
+- Directory structure overview
+- Per-aggregate analysis (fields, methods, DDD patterns, dependency audit)
+- Domain event inventory
+- Port/interface catalog with method signatures
+- Application service inventory
+- Infrastructure adapter mapping (which ports each adapter implements)
+- Architecture conformance scoring
+- Heuristic improvement suggestions
+
+```bash
+# Analyze a module (auto-detects project root)
+boundary forensics /path/to/repo/internal/domain/billing/
+
+# Specify project root explicitly (useful for monorepos)
+boundary forensics /path/to/module --project-root /path/to/repo
+
+# Write report to file
+boundary forensics /path/to/module --output billing-forensics.md
+
+# Limit to specific languages
+boundary forensics /path/to/module --languages go,rust
+```
+
 ## What It Detects
 
 ### Good Patterns
@@ -191,6 +221,9 @@ See `.github/workflows/boundary.yml` for a working example.
 - Ports (interfaces) defining contracts
 - Adapters implementing ports
 - Dependencies flowing inward (infrastructure -> application -> domain)
+- Domain events for aggregate state changes
+- Value objects for identity-less data
+- Rich domain models with business methods
 
 ### Violations
 
@@ -198,17 +231,19 @@ See `.github/workflows/boundary.yml` for a working example.
 - Application layer bypassing domain
 - Circular dependencies between layers
 - Missing interfaces for external adapters
+- Infrastructure leaks in domain entities
+- Anemic domain models (entities with no business methods)
 
 ## How It Works
 
 Boundary uses [tree-sitter](https://tree-sitter.github.io/) to parse source code into ASTs. It then:
 
-1. **Extracts components** - Identifies interfaces, structs, and their relationships
+1. **Extracts components** - Identifies interfaces, structs, methods, fields (with types), domain events, and value objects
 2. **Classifies layers** - Uses path patterns to determine architectural layers
 3. **Builds dependency graph** - Maps how components depend on each other
 4. **Detects violations** - Compares actual dependencies against architectural rules
 5. **Calculates scores** - Quantifies architectural health with configurable weights
-6. **Generates reports** - Outputs findings in text or JSON format
+6. **Generates reports** - Outputs findings in text, JSON, markdown, or forensics format
 
 ## Architecture
 
@@ -238,6 +273,8 @@ Boundary includes an LSP server (`boundary-lsp`) that provides real-time archite
 - **Multi-language support** - Go, Rust, TypeScript/TSX, and Java via tree-sitter
 - **Architectural scoring** - Layer isolation, dependency direction, interface coverage
 - **Violation detection** - Layer boundary crossings, circular dependencies, pattern violations
+- **Module forensics** - Deep-dive reports with DDD pattern detection, dependency audits, and improvement suggestions
+- **Rich component extraction** - Fields with types, method signatures, domain events, value objects
 - **Multiple output formats** - Text, JSON, Markdown, Mermaid diagrams, GraphViz DOT
 - **Incremental analysis** - SHA-256 content hashing for fast re-analysis of changed files
 - **LSP server** - Real-time diagnostics and hover info in your editor
@@ -258,6 +295,9 @@ Boundary includes an LSP server (`boundary-lsp`) that provides real-time archite
 - [x] Incremental analysis with caching
 - [x] LSP server
 - [x] NeoVim plugin
+- [x] Module forensics reports (DDD pattern detection, dependency audits)
+- [x] Domain event and value object detection
+- [x] Method extraction with signatures (Go, Rust, TS, Java)
 - [ ] VS Code extension
 - [ ] Monorepo / multi-service support
 - [ ] Cross-cutting concern exclusions

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/rebelopsio/boundary/compare/v0.4.0...v0.4.1) (2026-02-17)
+
+
+### Bug Fixes
+
+* scoring calculation bug ([#17](https://github.com/rebelopsio/boundary/issues/17)) ([36bdbba](https://github.com/rebelopsio/boundary/commit/36bdbbafdacfcadd8fed76a8400d78fb42c1e553))
+
 ## [0.4.0](https://github.com/rebelopsio/boundary/compare/v0.3.0...v0.4.0) (2026-02-16)
 
 

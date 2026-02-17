@@ -1,0 +1,15 @@
+[book]
+title = "Boundary"
+authors = ["Stephen Morgan"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+git-repository-url = "https://github.com/rebelopsio/boundary"
+edit-url-template = "https://github.com/rebelopsio/boundary/edit/main/docs/{path}"
+
+[output.html.search]
+enable = true

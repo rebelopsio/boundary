@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
@@ -52,28 +52,30 @@ impl BoundaryLanguageServer {
     }
 
     async fn run_analysis_and_publish(&self) {
-        let pipeline = self.pipeline.lock().await;
-        let root = self.project_root.lock().await;
+        let analysis = {
+            let pipeline = self.pipeline.lock().await;
+            let root = self.project_root.lock().await;
 
-        let (Some(pipeline), Some(root)) = (pipeline.as_ref(), root.as_ref()) else {
-            return;
+            let (Some(pipeline), Some(root)) = (pipeline.as_ref(), root.as_ref()) else {
+                return;
+            };
+
+            match pipeline.analyze_incremental(root) {
+                Ok(analysis) => analysis,
+                Err(e) => {
+                    self.client
+                        .log_message(
+                            MessageType::ERROR,
+                            format!("Boundary LSP: analysis failed: {e}"),
+                        )
+                        .await;
+                    return;
+                }
+            }
         };
-        let root: &Path = root;
-
-        match pipeline.analyze_incremental(root) {
-            Ok(analysis) => {
-                self.publish_diagnostics(&analysis).await;
-                *self.last_analysis.lock().await = Some(analysis);
-            }
-            Err(e) => {
-                self.client
-                    .log_message(
-                        MessageType::ERROR,
-                        format!("Boundary LSP: analysis failed: {e}"),
-                    )
-                    .await;
-            }
-        }
+        // Locks are dropped here before publish_diagnostics acquires project_root lock
+        self.publish_diagnostics(&analysis).await;
+        *self.last_analysis.lock().await = Some(analysis);
     }
 
     async fn publish_diagnostics(&self, analysis: &FullAnalysis) {

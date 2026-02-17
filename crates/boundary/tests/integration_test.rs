@@ -5,9 +5,26 @@ fn fixture_path() -> String {
     format!("{manifest_dir}/tests/fixtures/sample-go-project/")
 }
 
+fn ts_fixture_path() -> String {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    format!("{manifest_dir}/tests/fixtures/sample-ts-project/")
+}
+
+fn java_fixture_path() -> String {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    format!("{manifest_dir}/tests/fixtures/sample-java-project/")
+}
+
+fn rust_fixture_path() -> String {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    format!("{manifest_dir}/tests/fixtures/sample-rust-project/")
+}
+
 fn boundary_cmd() -> Command {
     Command::new(env!("CARGO_BIN_EXE_boundary"))
 }
+
+// ==================== Go analyzer tests (existing) ====================
 
 #[test]
 fn test_analyze_sample_project() {
@@ -196,5 +213,288 @@ fn test_analyze_nonexistent_path() {
     assert!(
         stderr.contains("does not exist"),
         "should show helpful error message: {stderr}"
+    );
+}
+
+// ==================== TypeScript analyzer tests ====================
+
+#[test]
+fn test_analyze_typescript_project() {
+    let output = boundary_cmd()
+        .args(["analyze", &ts_fixture_path()])
+        .output()
+        .expect("failed to run boundary analyze on TS fixture");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "TS analyze failed: stdout={stdout}, stderr={stderr}"
+    );
+    assert!(
+        stdout.contains("Overall Score"),
+        "should contain score: {stdout}"
+    );
+}
+
+#[test]
+fn test_check_typescript_violations() {
+    let output = boundary_cmd()
+        .args(["check", &ts_fixture_path(), "--fail-on", "error"])
+        .output()
+        .expect("failed to run boundary check on TS fixture");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "expected exit code 1 for TS violations, got {:?}: {stdout}",
+        output.status.code()
+    );
+    assert!(
+        stdout.contains("CHECK FAILED"),
+        "should say CHECK FAILED: {stdout}"
+    );
+}
+
+#[test]
+fn test_analyze_typescript_json() {
+    let output = boundary_cmd()
+        .args(["analyze", &ts_fixture_path(), "--format", "json"])
+        .output()
+        .expect("failed to run boundary analyze --format json on TS fixture");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "TS JSON analyze should succeed: {stdout}"
+    );
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("output should be valid JSON");
+    assert!(parsed.get("score").is_some(), "should have score field");
+    assert!(
+        parsed.get("violations").is_some(),
+        "should have violations field"
+    );
+    assert!(
+        parsed.get("component_count").is_some(),
+        "should have component_count field"
+    );
+    assert!(
+        parsed["component_count"].as_u64().unwrap() > 0,
+        "should find TS components"
+    );
+}
+
+// ==================== Java analyzer tests ====================
+
+#[test]
+fn test_analyze_java_project() {
+    let output = boundary_cmd()
+        .args(["analyze", &java_fixture_path()])
+        .output()
+        .expect("failed to run boundary analyze on Java fixture");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "Java analyze failed: stdout={stdout}, stderr={stderr}"
+    );
+    assert!(
+        stdout.contains("Overall Score"),
+        "should contain score: {stdout}"
+    );
+}
+
+#[test]
+fn test_check_java_violations() {
+    let output = boundary_cmd()
+        .args(["check", &java_fixture_path(), "--fail-on", "error"])
+        .output()
+        .expect("failed to run boundary check on Java fixture");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "expected exit code 1 for Java violations, got {:?}: {stdout}",
+        output.status.code()
+    );
+    assert!(
+        stdout.contains("CHECK FAILED"),
+        "should say CHECK FAILED: {stdout}"
+    );
+}
+
+#[test]
+fn test_analyze_java_json() {
+    let output = boundary_cmd()
+        .args(["analyze", &java_fixture_path(), "--format", "json"])
+        .output()
+        .expect("failed to run boundary analyze --format json on Java fixture");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "Java JSON analyze should succeed: {stdout}"
+    );
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("output should be valid JSON");
+    assert!(parsed.get("score").is_some(), "should have score field");
+    assert!(
+        parsed.get("violations").is_some(),
+        "should have violations field"
+    );
+    assert!(
+        parsed.get("component_count").is_some(),
+        "should have component_count field"
+    );
+    assert!(
+        parsed["component_count"].as_u64().unwrap() > 0,
+        "should find Java components"
+    );
+}
+
+// ==================== Rust analyzer tests ====================
+
+#[test]
+fn test_analyze_rust_project() {
+    let output = boundary_cmd()
+        .args(["analyze", &rust_fixture_path()])
+        .output()
+        .expect("failed to run boundary analyze on Rust fixture");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "Rust analyze failed: stdout={stdout}, stderr={stderr}"
+    );
+    assert!(
+        stdout.contains("Overall Score"),
+        "should contain score: {stdout}"
+    );
+}
+
+#[test]
+fn test_check_rust_violations() {
+    let output = boundary_cmd()
+        .args(["check", &rust_fixture_path(), "--fail-on", "error"])
+        .output()
+        .expect("failed to run boundary check on Rust fixture");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Rust fixture has domain->infrastructure violation (domain/user/mod.rs imports infrastructure::postgres)
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "expected exit code 1 for Rust violations, got {:?}: {stdout}",
+        output.status.code()
+    );
+    assert!(
+        stdout.contains("CHECK FAILED"),
+        "should say CHECK FAILED: {stdout}"
+    );
+}
+
+// ==================== Cross-language and output format tests ====================
+
+#[test]
+fn test_analyze_all_languages_detected() {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let dest = dir.path();
+
+    // Copy all fixtures into a single directory
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let fixtures_dir = format!("{manifest_dir}/tests/fixtures");
+
+    // Copy files from each fixture into the temp dir with language-appropriate structure
+    fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) {
+        std::fs::create_dir_all(dst).unwrap();
+        for entry in std::fs::read_dir(src).unwrap() {
+            let entry = entry.unwrap();
+            let target = dst.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_dir_recursive(&entry.path(), &target);
+            } else {
+                std::fs::copy(entry.path(), &target).unwrap();
+            }
+        }
+    }
+
+    // Copy each language fixture into a subdirectory
+    copy_dir_recursive(
+        std::path::Path::new(&format!("{fixtures_dir}/sample-go-project")),
+        &dest.join("go-code"),
+    );
+    copy_dir_recursive(
+        std::path::Path::new(&format!("{fixtures_dir}/sample-ts-project")),
+        &dest.join("ts-code"),
+    );
+    copy_dir_recursive(
+        std::path::Path::new(&format!("{fixtures_dir}/sample-java-project")),
+        &dest.join("java-code"),
+    );
+    copy_dir_recursive(
+        std::path::Path::new(&format!("{fixtures_dir}/sample-rust-project")),
+        &dest.join("rust-code"),
+    );
+
+    let output = boundary_cmd()
+        .args(["analyze", dest.to_str().unwrap(), "--format", "json"])
+        .output()
+        .expect("failed to run boundary analyze on multi-language dir");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "multi-language analyze should succeed: {stdout}"
+    );
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("output should be valid JSON");
+
+    // Should find components from multiple languages
+    let count = parsed["component_count"].as_u64().unwrap();
+    assert!(
+        count >= 4,
+        "should find components from multiple languages, got {count}"
+    );
+}
+
+#[test]
+fn test_markdown_output() {
+    let output = boundary_cmd()
+        .args(["analyze", &fixture_path(), "--format", "markdown"])
+        .output()
+        .expect("failed to run boundary analyze --format markdown");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "markdown analyze should succeed: {stdout}"
+    );
+
+    // Markdown output should contain expected sections
+    assert!(
+        stdout.contains('#'),
+        "markdown should contain headings: {stdout}"
+    );
+    assert!(
+        stdout.contains("Score") || stdout.contains("score"),
+        "markdown should contain score section: {stdout}"
+    );
+    assert!(
+        stdout.contains("Violation") || stdout.contains("violation"),
+        "markdown should mention violations: {stdout}"
     );
 }

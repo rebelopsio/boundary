@@ -107,6 +107,13 @@ impl BoundaryLanguageServer {
                 ViolationKind::DomainInfrastructureLeak { detail } => {
                     format!("domain-infra-leak: {detail}")
                 }
+                ViolationKind::InitFunctionCoupling {
+                    from_layer,
+                    to_layer,
+                    ..
+                } => {
+                    format!("init-coupling: {from_layer} -> {to_layer}")
+                }
             };
 
             let diagnostic = Diagnostic {

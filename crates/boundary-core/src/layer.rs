@@ -1,7 +1,7 @@
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
 use crate::config::LayersConfig;
-use crate::types::ArchLayer;
+use crate::types::{ArchLayer, ArchitectureMode};
 
 /// A compiled per-module layer override.
 struct LayerOverride {
@@ -14,6 +14,7 @@ struct LayerOverride {
     has_application: bool,
     has_infrastructure: bool,
     has_presentation: bool,
+    architecture_mode: Option<ArchitectureMode>,
 }
 
 /// Classifies file paths into architectural layers using glob patterns.
@@ -24,6 +25,7 @@ pub struct LayerClassifier {
     presentation: GlobSet,
     overrides: Vec<LayerOverride>,
     cross_cutting: GlobSet,
+    default_mode: ArchitectureMode,
 }
 
 fn build_globset(patterns: &[String]) -> GlobSet {
@@ -53,6 +55,7 @@ impl LayerClassifier {
                 has_application: !o.application.is_empty(),
                 has_infrastructure: !o.infrastructure.is_empty(),
                 has_presentation: !o.presentation.is_empty(),
+                architecture_mode: o.architecture_mode,
             })
             .collect();
 
@@ -63,6 +66,7 @@ impl LayerClassifier {
             presentation: build_globset(&config.presentation),
             overrides,
             cross_cutting: build_globset(&config.cross_cutting),
+            default_mode: config.architecture_mode,
         }
     }
 
@@ -79,6 +83,21 @@ impl LayerClassifier {
 
         // No override matched — use global patterns
         self.classify_global(&normalized)
+    }
+
+    /// Get the architecture mode for a given file path.
+    /// Checks overrides first (first scope match wins), falls back to global default.
+    pub fn architecture_mode(&self, path: &str) -> ArchitectureMode {
+        let normalized = path.replace('\\', "/");
+        for ovr in &self.overrides {
+            if ovr.scope.is_match(&normalized) {
+                if let Some(mode) = ovr.architecture_mode {
+                    return mode;
+                }
+                return self.default_mode;
+            }
+        }
+        self.default_mode
     }
 
     /// Check if a path matches cross-cutting concern patterns.
@@ -244,6 +263,7 @@ mod tests {
             ],
             application: vec![],
             presentation: vec![],
+            architecture_mode: None,
         }]);
         let classifier = LayerClassifier::new(&config);
 
@@ -270,6 +290,7 @@ mod tests {
             infrastructure: vec![],
             application: vec![],
             presentation: vec![],
+            architecture_mode: None,
         }]);
         let classifier = LayerClassifier::new(&config);
 
@@ -294,6 +315,7 @@ mod tests {
             application: vec![],
             infrastructure: vec![],
             presentation: vec![],
+            architecture_mode: None,
         }]);
         let classifier = LayerClassifier::new(&config);
 
@@ -318,6 +340,7 @@ mod tests {
                 infrastructure: vec![],
                 application: vec![],
                 presentation: vec![],
+                architecture_mode: None,
             },
             LayerOverrideConfig {
                 scope: "services/**".to_string(),
@@ -325,6 +348,7 @@ mod tests {
                 infrastructure: vec![],
                 application: vec![],
                 presentation: vec![],
+                architecture_mode: None,
             },
         ]);
         let classifier = LayerClassifier::new(&config);
@@ -349,6 +373,7 @@ mod tests {
             infrastructure: vec![],
             application: vec![],
             presentation: vec![],
+            architecture_mode: None,
         }]);
         let classifier = LayerClassifier::new(&config);
 
@@ -394,6 +419,77 @@ mod tests {
 
         assert!(!classifier.is_cross_cutting("common/utils/helpers.go"));
         assert!(!classifier.is_cross_cutting("any/path.go"));
+    }
+
+    #[test]
+    fn test_architecture_mode_default() {
+        let classifier = LayerClassifier::new(&LayersConfig::default());
+        assert_eq!(
+            classifier.architecture_mode("any/path.go"),
+            ArchitectureMode::Ddd
+        );
+    }
+
+    #[test]
+    fn test_architecture_mode_global_override() {
+        let config = LayersConfig {
+            architecture_mode: ArchitectureMode::ActiveRecord,
+            ..LayersConfig::default()
+        };
+        let classifier = LayerClassifier::new(&config);
+        assert_eq!(
+            classifier.architecture_mode("any/path.go"),
+            ArchitectureMode::ActiveRecord
+        );
+    }
+
+    #[test]
+    fn test_architecture_mode_scope_override() {
+        let config = LayersConfig {
+            overrides: vec![LayerOverrideConfig {
+                scope: "services/legacy/**".to_string(),
+                domain: vec![],
+                application: vec![],
+                infrastructure: vec![],
+                presentation: vec![],
+                architecture_mode: Some(ArchitectureMode::ServiceOriented),
+            }],
+            ..LayersConfig::default()
+        };
+        let classifier = LayerClassifier::new(&config);
+
+        assert_eq!(
+            classifier.architecture_mode("services/legacy/handler.go"),
+            ArchitectureMode::ServiceOriented
+        );
+        // Outside scope falls back to global default (Ddd)
+        assert_eq!(
+            classifier.architecture_mode("other/handler.go"),
+            ArchitectureMode::Ddd
+        );
+    }
+
+    #[test]
+    fn test_architecture_mode_override_without_mode_uses_global() {
+        let config = LayersConfig {
+            architecture_mode: ArchitectureMode::ActiveRecord,
+            overrides: vec![LayerOverrideConfig {
+                scope: "services/auth/**".to_string(),
+                domain: vec!["services/auth/core/**".to_string()],
+                application: vec![],
+                infrastructure: vec![],
+                presentation: vec![],
+                architecture_mode: None, // no mode override
+            }],
+            ..LayersConfig::default()
+        };
+        let classifier = LayerClassifier::new(&config);
+
+        // Scope matches but no mode override → falls back to global (ActiveRecord)
+        assert_eq!(
+            classifier.architecture_mode("services/auth/core/user.go"),
+            ArchitectureMode::ActiveRecord
+        );
     }
 
     #[test]

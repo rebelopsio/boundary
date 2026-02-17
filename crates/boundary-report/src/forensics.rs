@@ -261,6 +261,13 @@ pub fn format_forensics_report(analysis: &ForensicsAnalysis) -> String {
                 ViolationKind::DomainInfrastructureLeak { detail } => {
                     format!("infra leak: {detail}")
                 }
+                ViolationKind::InitFunctionCoupling {
+                    from_layer,
+                    to_layer,
+                    ..
+                } => {
+                    format!("init coupling: {from_layer} -> {to_layer}")
+                }
             };
             out.push_str(&format!(
                 "- **{}** [{}] {}: {}\n",

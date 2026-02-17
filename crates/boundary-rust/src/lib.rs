@@ -215,6 +215,7 @@ fn extract_traits(
                 column: start_col + 1,
             },
             is_cross_cutting: false,
+            architecture_mode: ArchitectureMode::default(),
         });
     }
 }
@@ -283,6 +284,7 @@ fn extract_structs(
                 column: start_col + 1,
             },
             is_cross_cutting: false,
+            architecture_mode: ArchitectureMode::default(),
         });
     }
 }
@@ -377,6 +379,7 @@ fn classify_struct_kind(name: &str, fields: &[FieldInfo]) -> ComponentKind {
             name: name.to_string(),
             fields: fields.to_vec(),
             methods: Vec::new(),
+            is_active_record: false,
         })
     }
 }

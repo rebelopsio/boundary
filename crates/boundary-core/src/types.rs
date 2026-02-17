@@ -2,6 +2,17 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::PathBuf;
 
+/// Architecture mode for a module or component.
+/// Controls which violations are enforced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ArchitectureMode {
+    #[default]
+    Ddd,
+    ActiveRecord,
+    ServiceOriented,
+}
+
 /// Unique identifier for a component: "package::Name"
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComponentId(pub String);
@@ -126,6 +137,8 @@ pub struct EntityInfo {
     pub name: String,
     pub fields: Vec<FieldInfo>,
     pub methods: Vec<MethodInfo>,
+    #[serde(default)]
+    pub is_active_record: bool,
 }
 
 /// A discovered architectural component
@@ -138,6 +151,8 @@ pub struct Component {
     pub location: SourceLocation,
     #[serde(default)]
     pub is_cross_cutting: bool,
+    #[serde(default)]
+    pub architecture_mode: ArchitectureMode,
 }
 
 /// Kind of dependency relationship
@@ -209,6 +224,12 @@ pub enum ViolationKind {
     },
     DomainInfrastructureLeak {
         detail: String,
+    },
+    InitFunctionCoupling {
+        init_file: String,
+        called_package: String,
+        from_layer: ArchLayer,
+        to_layer: ArchLayer,
     },
 }
 

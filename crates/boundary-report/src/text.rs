@@ -112,6 +112,13 @@ pub fn format_report(result: &AnalysisResult) -> String {
                 ViolationKind::DomainInfrastructureLeak { detail } => {
                     format!("infra leak: {detail}")
                 }
+                ViolationKind::InitFunctionCoupling {
+                    from_layer,
+                    to_layer,
+                    ..
+                } => {
+                    format!("init coupling: {from_layer} -> {to_layer}")
+                }
             };
 
             out.push_str(&format!(
@@ -159,6 +166,91 @@ fn format_score_section(score: &boundary_core::metrics::ArchitectureScore) -> St
         score.interface_coverage
     ));
 
+    out
+}
+
+/// Format a multi-service analysis report for terminal output.
+pub fn format_multi_service_report(multi: &boundary_core::metrics::MultiServiceResult) -> String {
+    let mut out = String::new();
+
+    out.push_str(&format!(
+        "\n{}\n",
+        "Boundary - Multi-Service Analysis".bold()
+    ));
+    out.push_str(&format!("{}\n\n", "=".repeat(40)));
+
+    // Per-service score table
+    out.push_str(&format!("{}\n", "Per-Service Scores".bold()));
+    out.push_str(&format!(
+        "  {:<20} {:>8} {:>10} {:>10} {:>10}\n",
+        "Service", "Overall", "Isolation", "Direction", "Iface Cov"
+    ));
+    out.push_str(&format!("  {}\n", "-".repeat(62)));
+
+    for svc in &multi.services {
+        out.push_str(&format!(
+            "  {:<20} {:>7.1} {:>9.1} {:>9.1} {:>9.1}\n",
+            svc.service_name,
+            svc.result.score.overall,
+            svc.result.score.layer_isolation,
+            svc.result.score.dependency_direction,
+            svc.result.score.interface_coverage,
+        ));
+    }
+
+    // Aggregate
+    out.push_str(&format!("\n{}\n", "Aggregate Score".bold()));
+    out.push_str(&format_score_section(&multi.aggregate.score));
+
+    // Shared modules
+    if !multi.shared_modules.is_empty() {
+        out.push_str(&format!("\n{}\n", "Shared Modules".bold()));
+        for sm in &multi.shared_modules {
+            out.push_str(&format!(
+                "  {} (used by: {})\n",
+                sm.path,
+                sm.used_by.join(", ")
+            ));
+        }
+    }
+
+    // Per-service violations
+    let total_violations: usize = multi
+        .services
+        .iter()
+        .map(|s| s.result.violations.len())
+        .sum();
+    if total_violations == 0 {
+        out.push_str(&format!("\n{}\n", "No violations found!".green().bold()));
+    } else {
+        out.push_str(&format!(
+            "\n{} ({total_violations} total)\n",
+            "Violations".red().bold()
+        ));
+        for svc in &multi.services {
+            if svc.result.violations.is_empty() {
+                continue;
+            }
+            out.push_str(&format!(
+                "\n  {} ({}):\n",
+                svc.service_name.bold(),
+                svc.result.violations.len()
+            ));
+            for v in &svc.result.violations {
+                let severity_str = match v.severity {
+                    Severity::Error => "ERROR".red().bold().to_string(),
+                    Severity::Warning => "WARN".yellow().bold().to_string(),
+                    Severity::Info => "INFO".blue().bold().to_string(),
+                };
+                out.push_str(&format!(
+                    "    {} {} - {}\n",
+                    severity_str, v.location, v.message
+                ));
+            }
+        }
+    }
+
+    out.push('\n');
     out
 }
 

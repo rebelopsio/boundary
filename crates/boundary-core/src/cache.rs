@@ -185,6 +185,7 @@ mod tests {
                 name: "Test".to_string(),
                 fields: vec![],
                 methods: vec![],
+                is_active_record: false,
             }),
             layer: None,
             location: SourceLocation {
@@ -193,6 +194,7 @@ mod tests {
                 column: 1,
             },
             is_cross_cutting: false,
+            architecture_mode: ArchitectureMode::Ddd,
         };
 
         cache.insert(

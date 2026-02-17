@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/rebelopsio/boundary/compare/v0.6.0...v0.7.0) (2026-02-17)
+
+
+### Features
+
+* cross-cutting concern exclusions ([#25](https://github.com/rebelopsio/boundary/issues/25)) ([8e4cbde](https://github.com/rebelopsio/boundary/commit/8e4cbde65aed547cfd62df83bea91b16813f5615))
+
 ## [0.6.0](https://github.com/rebelopsio/boundary/compare/v0.5.1...v0.6.0) (2026-02-17)
 
 

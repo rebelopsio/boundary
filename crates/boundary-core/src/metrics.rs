@@ -446,6 +446,7 @@ fn compute_metrics(
             ComponentKind::UseCase => "use_case",
             ComponentKind::Repository => "repository",
             ComponentKind::Service => "service",
+            ComponentKind::DomainEvent(_) => "domain_event",
         };
         *components_by_kind.entry(kind_name.to_string()).or_insert(0) += 1;
     }
@@ -505,6 +506,7 @@ mod tests {
             kind: ComponentKind::Entity(EntityInfo {
                 name: name.to_string(),
                 fields: vec![],
+                methods: vec![],
             }),
             layer,
             location: SourceLocation {

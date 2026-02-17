@@ -50,10 +50,11 @@ build:
 	cargo build
 
 build-release:
-	cargo build --release
+	cargo build --release --bin boundary --bin boundary-lsp
 
 install:
-	cargo install --path crates/boundary
+	cargo install --path crates/boundary --root $(HOME)/.cargo
+	cargo install --path crates/boundary-lsp --root $(HOME)/.cargo
 
 # ==============================================================================
 # Development
@@ -127,8 +128,8 @@ help:
 	@echo ""
 	@echo "Build:"
 	@echo "  build             Debug build"
-	@echo "  build-release     Optimized release build"
-	@echo "  install           Install boundary binary via cargo"
+	@echo "  build-release     Optimized release build (boundary + boundary-lsp)"
+	@echo "  install           Install both binaries to ~/.cargo/bin"
 	@echo ""
 	@echo "Development:"
 	@echo "  run ARGS=...      Run boundary CLI with arguments"

@@ -184,6 +184,7 @@ mod tests {
             kind: ComponentKind::Entity(EntityInfo {
                 name: "Test".to_string(),
                 fields: vec![],
+                methods: vec![],
             }),
             layer: None,
             location: SourceLocation {

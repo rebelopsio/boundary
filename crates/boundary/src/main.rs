@@ -11,6 +11,7 @@ use boundary_core::config::Config;
 use boundary_core::graph::DependencyGraph;
 use boundary_core::layer::LayerClassifier;
 use boundary_core::metrics;
+use boundary_core::pipeline::{self, AnalysisPipeline};
 use boundary_core::types::Severity;
 
 use boundary_go::GoAnalyzer;
@@ -106,6 +107,23 @@ enum Commands {
         #[arg(long, value_delimiter = ',')]
         languages: Option<Vec<String>>,
     },
+    /// Generate a detailed forensics report for a module
+    Forensics {
+        /// Path to the module directory
+        path: PathBuf,
+        /// Project root (auto-detected if not specified)
+        #[arg(long)]
+        project_root: Option<PathBuf>,
+        /// Config file path
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+        /// Languages to analyze (auto-detect if not specified)
+        #[arg(long, value_delimiter = ',')]
+        languages: Option<Vec<String>>,
+        /// Write output to file instead of stdout
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -163,6 +181,19 @@ fn main() {
             diagram_type,
             languages,
         } => cmd_diagram(&path, config.as_deref(), diagram_type, languages.as_deref()),
+        Commands::Forensics {
+            path,
+            project_root,
+            config,
+            languages,
+            output,
+        } => cmd_forensics(
+            &path,
+            project_root.as_deref(),
+            config.as_deref(),
+            languages.as_deref(),
+            output.as_deref(),
+        ),
     };
 
     if let Err(e) = result {
@@ -286,6 +317,44 @@ fn cmd_diagram(
         }
     };
     println!("{diagram}");
+    Ok(())
+}
+
+fn cmd_forensics(
+    module_path: &Path,
+    project_root_override: Option<&Path>,
+    config_path: Option<&Path>,
+    languages: Option<&[String]>,
+    output_path: Option<&Path>,
+) -> Result<()> {
+    validate_path(module_path)?;
+
+    // Determine project root
+    let project_root = if let Some(root) = project_root_override {
+        root.to_path_buf()
+    } else {
+        pipeline::find_project_root(module_path).unwrap_or_else(|| module_path.to_path_buf())
+    };
+
+    validate_path(&project_root)?;
+
+    let config = load_config(&project_root, config_path)?;
+    let analyzers = create_analyzers(&project_root, &config, languages)?;
+    let pipeline = AnalysisPipeline::new(analyzers, config);
+
+    let full_analysis = pipeline.analyze_module(module_path, &project_root)?;
+    let forensics =
+        boundary_core::forensics::build_forensics(&full_analysis, module_path, &project_root);
+    let report = boundary_report::forensics::format_forensics_report(&forensics);
+
+    if let Some(out_path) = output_path {
+        std::fs::write(out_path, &report)
+            .with_context(|| format!("failed to write output to {}", out_path.display()))?;
+        eprintln!("Forensics report written to {}", out_path.display());
+    } else {
+        println!("{report}");
+    }
+
     Ok(())
 }
 

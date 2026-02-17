@@ -228,7 +228,11 @@ fn extract_interfaces(
                         let child = child_cursor.node();
                         if child.kind() == "method_signature" {
                             if let Some(name_node) = child.child_by_field_name("name") {
-                                methods.push(node_text(name_node, &parsed.content));
+                                methods.push(MethodInfo {
+                                    name: node_text(name_node, &parsed.content),
+                                    parameters: String::new(),
+                                    return_type: String::new(),
+                                });
                             }
                         }
                         if !child_cursor.goto_next_sibling() {
@@ -377,6 +381,7 @@ fn classify_class_kind(name: &str, implements: &[String]) -> ComponentKind {
         ComponentKind::Entity(EntityInfo {
             name: name.to_string(),
             fields: vec![],
+            methods: Vec::new(),
         })
     }
 }
@@ -428,8 +433,8 @@ export interface User {
         assert!(matches!(repo.unwrap().kind, ComponentKind::Port(_)));
 
         if let ComponentKind::Port(ref info) = repo.unwrap().kind {
-            assert!(info.methods.contains(&"save".to_string()));
-            assert!(info.methods.contains(&"findById".to_string()));
+            assert!(info.methods.iter().any(|m| m.name == "save"));
+            assert!(info.methods.iter().any(|m| m.name == "findById"));
         }
     }
 

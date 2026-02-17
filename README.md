@@ -214,21 +214,33 @@ Boundary uses [tree-sitter](https://tree-sitter.github.io/) to parse source code
 
 ```
 boundary/
-├── boundary          # CLI binary
-├── boundary-core     # Core types, graph, metrics
-├── boundary-go       # Go language analyzer
-├── boundary-rust     # Rust language analyzer (planned)
-└── boundary-report   # Report generators (text, JSON)
+├── boundary            # CLI binary
+├── boundary-core       # Core types, graph, metrics, pipeline, cache
+├── boundary-go         # Go language analyzer
+├── boundary-rust       # Rust language analyzer
+├── boundary-typescript # TypeScript/TSX language analyzer
+├── boundary-java       # Java language analyzer
+├── boundary-report     # Report generators (text, markdown, Mermaid, DOT)
+└── boundary-lsp        # LSP server for editor integration
 ```
 
 Each language analyzer implements the `LanguageAnalyzer` trait, making it straightforward to add support for new languages.
 
+## Editor Integration
+
+Boundary includes an LSP server (`boundary-lsp`) that provides real-time architecture diagnostics in your editor.
+
+- **NeoVim**: [boundary.nvim](https://github.com/rebelopsio/boundary.nvim)
+- **VS Code**: Coming soon
+
 ## Features
 
-- **Go language support** - Extracts interfaces, structs, imports via tree-sitter
+- **Multi-language support** - Go, Rust, TypeScript/TSX, and Java via tree-sitter
 - **Architectural scoring** - Layer isolation, dependency direction, interface coverage
-- **Violation detection** - Layer boundary crossings, circular dependencies
-- **JSON output** - Machine-readable output for CI/CD integration
+- **Violation detection** - Layer boundary crossings, circular dependencies, pattern violations
+- **Multiple output formats** - Text, JSON, Markdown, Mermaid diagrams, GraphViz DOT
+- **Incremental analysis** - SHA-256 content hashing for fast re-analysis of changed files
+- **LSP server** - Real-time diagnostics and hover info in your editor
 - **Parallel processing** - Uses rayon for fast multi-file analysis
 - **Configurable** - Define layer patterns, scoring weights, and violation rules
 
@@ -236,13 +248,20 @@ Each language analyzer implements the `LanguageAnalyzer` trait, making it straig
 
 - [x] Core architecture and scoring engine
 - [x] Go language support
+- [x] Rust language support
+- [x] TypeScript/TSX language support
+- [x] Java language support
 - [x] JSON output format
+- [x] Markdown reports and Mermaid diagrams
+- [x] GraphViz DOT output
 - [x] CI/CD integration (GitHub Actions)
-- [ ] Rust language support
-- [ ] Java/Kotlin support
-- [ ] TypeScript support
+- [x] Incremental analysis with caching
+- [x] LSP server
+- [x] NeoVim plugin
 - [ ] VS Code extension
-- [ ] Architecture evolution tracking
+- [ ] Monorepo / multi-service support
+- [ ] Cross-cutting concern exclusions
+- [ ] Active Record pattern recognition
 
 ## Contributing
 

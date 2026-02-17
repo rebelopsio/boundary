@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/rebelopsio/boundary/compare/v0.7.0...v0.8.0) (2026-02-17)
+
+
+### Features
+
+* hybrid architecture tolerance ([#27](https://github.com/rebelopsio/boundary/issues/27)) ([0a8c48b](https://github.com/rebelopsio/boundary/commit/0a8c48b8fe56747597e1f60282eb9854155275a4))
+
 ## [0.7.0](https://github.com/rebelopsio/boundary/compare/v0.6.0...v0.7.0) (2026-02-17)
 
 

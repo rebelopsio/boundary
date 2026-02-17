@@ -43,6 +43,20 @@ impl Default for ProjectConfig {
     }
 }
 
+/// Per-module override for layer classification patterns.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LayerOverrideConfig {
+    pub scope: String,
+    #[serde(default)]
+    pub domain: Vec<String>,
+    #[serde(default)]
+    pub application: Vec<String>,
+    #[serde(default)]
+    pub infrastructure: Vec<String>,
+    #[serde(default)]
+    pub presentation: Vec<String>,
+}
+
 /// Glob patterns mapping file paths to architectural layers
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayersConfig {
@@ -54,6 +68,8 @@ pub struct LayersConfig {
     pub infrastructure: Vec<String>,
     #[serde(default = "default_presentation_patterns")]
     pub presentation: Vec<String>,
+    #[serde(default)]
+    pub overrides: Vec<LayerOverrideConfig>,
 }
 
 fn default_domain_patterns() -> Vec<String> {
@@ -97,6 +113,7 @@ impl Default for LayersConfig {
             application: default_application_patterns(),
             infrastructure: default_infrastructure_patterns(),
             presentation: default_presentation_patterns(),
+            overrides: Vec::new(),
         }
     }
 }
@@ -239,6 +256,13 @@ application = ["**/application/**", "**/usecase/**", "**/service/**"]
 infrastructure = ["**/infrastructure/**", "**/adapter/**", "**/repository/**", "**/persistence/**"]
 presentation = ["**/presentation/**", "**/handler/**", "**/api/**", "**/cmd/**"]
 
+# Per-module overrides — matched by scope, first match wins.
+# Omitted layers fall back to global patterns above.
+# [[layers.overrides]]
+# scope = "services/auth/**"
+# domain = ["services/auth/core/**"]
+# infrastructure = ["services/auth/server/**", "services/auth/adapters/**"]
+
 [scoring]
 # Weights for score components (should sum to 1.0)
 layer_isolation_weight = 0.4
@@ -306,5 +330,50 @@ fail_on = "warning"
         let config: Config = toml::from_str(&toml_str).unwrap();
         // The template specifies "go" as a starter config
         assert_eq!(config.project.languages, vec!["go"]);
+    }
+
+    #[test]
+    fn test_deserialize_layer_overrides() {
+        let toml_str = r#"
+[layers]
+domain = ["**/domain/**"]
+application = ["**/application/**"]
+infrastructure = ["**/infrastructure/**"]
+presentation = ["**/handler/**"]
+
+[[layers.overrides]]
+scope = "services/auth/**"
+domain = ["services/auth/core/**"]
+infrastructure = ["services/auth/server/**", "services/auth/adapters/**"]
+
+[[layers.overrides]]
+scope = "common/modules/*/**"
+domain = ["common/modules/*/domain/**"]
+application = ["common/modules/*/app/**"]
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.layers.overrides.len(), 2);
+        assert_eq!(config.layers.overrides[0].scope, "services/auth/**");
+        assert_eq!(
+            config.layers.overrides[0].domain,
+            vec!["services/auth/core/**"]
+        );
+        assert_eq!(
+            config.layers.overrides[0].infrastructure,
+            vec!["services/auth/server/**", "services/auth/adapters/**"]
+        );
+        // Second override has no infrastructure/presentation
+        assert!(config.layers.overrides[1].infrastructure.is_empty());
+        assert!(config.layers.overrides[1].presentation.is_empty());
+    }
+
+    #[test]
+    fn test_empty_overrides_backward_compatible() {
+        let toml_str = r#"
+[layers]
+domain = ["**/domain/**"]
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.layers.overrides.is_empty());
     }
 }

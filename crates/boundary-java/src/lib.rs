@@ -227,6 +227,7 @@ fn extract_interfaces(
                 line: start_row + 1,
                 column: start_col + 1,
             },
+            is_cross_cutting: false,
         });
     }
 }
@@ -282,6 +283,7 @@ fn extract_classes(
                 line: start_row + 1,
                 column: start_col + 1,
             },
+            is_cross_cutting: false,
         });
     }
 }

@@ -386,6 +386,7 @@ struct FileResult {
         boundary_core::types::Dependency,
         Option<boundary_core::types::ArchLayer>,
         Option<boundary_core::types::ArchLayer>,
+        bool,
     )>,
 }
 
@@ -558,6 +559,8 @@ fn run_analysis(
                     .to_string_lossy()
                     .to_string();
 
+                let is_cross_cutting = classifier.is_cross_cutting(&rel_path);
+
                 // Check cache for incremental analysis
                 if incremental {
                     if let Some(cached) = cache.get(&rel_path, &content) {
@@ -570,6 +573,7 @@ fn run_analysis(
                                 if comp.layer.is_none() {
                                     comp.layer = file_layer;
                                 }
+                                comp.is_cross_cutting = is_cross_cutting;
                                 let layer = comp.layer;
                                 (comp, layer)
                             })
@@ -584,7 +588,7 @@ fn run_analysis(
                                     .as_deref()
                                     .and_then(|p| classifier.classify_import(p));
                                 let from_layer = classifier.classify(&rel_path);
-                                (dep.clone(), from_layer, to_layer)
+                                (dep.clone(), from_layer, to_layer, is_cross_cutting)
                             })
                             .collect();
 
@@ -617,6 +621,7 @@ fn run_analysis(
                         if comp.layer.is_none() {
                             comp.layer = file_layer;
                         }
+                        comp.is_cross_cutting = is_cross_cutting;
                         let layer = comp.layer;
                         (comp, layer)
                     })
@@ -632,7 +637,7 @@ fn run_analysis(
                             .as_deref()
                             .and_then(|p| classifier.classify_import(p));
                         let from_layer = classifier.classify(&rel_path);
-                        (dep, from_layer, to_layer)
+                        (dep, from_layer, to_layer, is_cross_cutting)
                     })
                     .collect();
 
@@ -659,7 +664,7 @@ fn run_analysis(
                 let cached_deps: Vec<_> = fr
                     .dependencies
                     .iter()
-                    .map(|(dep, _, _)| dep.clone())
+                    .map(|(dep, _, _, _)| dep.clone())
                     .collect();
                 cache.insert(
                     rel_path,
@@ -676,9 +681,9 @@ fn run_analysis(
                 graph.add_component(comp);
                 all_components.push(comp.clone());
             }
-            for (dep, from_layer, to_layer) in &fr.dependencies {
-                graph.ensure_node(&dep.from, *from_layer);
-                graph.ensure_node(&dep.to, *to_layer);
+            for (dep, from_layer, to_layer, is_cc) in &fr.dependencies {
+                graph.ensure_node(&dep.from, *from_layer, *is_cc);
+                graph.ensure_node(&dep.to, *to_layer, false);
                 graph.add_dependency(dep);
             }
             total_deps += fr.dependencies.len();

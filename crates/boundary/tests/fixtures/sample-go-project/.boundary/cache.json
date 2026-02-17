@@ -1,5 +1,92 @@
 {
   "files": {
+    "internal/domain/user/entity.go": {
+      "hash": "eb67f819a460362f81cffd3ee52ccc0ed6942c03cb17fb1c29204cc37377a870",
+      "components": [
+        {
+          "id": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/domain/user::UserRepository",
+          "name": "UserRepository",
+          "kind": {
+            "Port": {
+              "name": "UserRepository",
+              "methods": [
+                {
+                  "name": "Save",
+                  "parameters": "(user *User)",
+                  "return_type": "error"
+                },
+                {
+                  "name": "FindByID",
+                  "parameters": "(id string)",
+                  "return_type": "(*User, error)"
+                },
+                {
+                  "name": "Delete",
+                  "parameters": "(id string)",
+                  "return_type": "error"
+                }
+              ]
+            }
+          },
+          "layer": "Domain",
+          "location": {
+            "file": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/domain/user/entity.go",
+            "line": 11,
+            "column": 6
+          },
+          "is_cross_cutting": false
+        },
+        {
+          "id": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/domain/user::User",
+          "name": "User",
+          "kind": {
+            "Entity": {
+              "name": "User",
+              "fields": [
+                {
+                  "name": "ID",
+                  "type_name": "string"
+                },
+                {
+                  "name": "Name",
+                  "type_name": "string"
+                },
+                {
+                  "name": "Email",
+                  "type_name": "string"
+                }
+              ],
+              "methods": []
+            }
+          },
+          "layer": "Domain",
+          "location": {
+            "file": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/domain/user/entity.go",
+            "line": 4,
+            "column": 6
+          },
+          "is_cross_cutting": false
+        }
+      ],
+      "dependencies": []
+    },
+    "internal/domain/user/bad_dependency.go": {
+      "hash": "a991f9a9731c8bd4a3b819ee3d7676a9835fda2a2e23be384b8153f1e912c280",
+      "components": [],
+      "dependencies": [
+        {
+          "from": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/domain/user::<file>",
+          "to": "github.com/example/app/internal/infrastructure/postgres::<package>",
+          "kind": "Import",
+          "location": {
+            "file": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/domain/user/bad_dependency.go",
+            "line": 4,
+            "column": 2
+          },
+          "import_path": "github.com/example/app/internal/infrastructure/postgres"
+        }
+      ]
+    },
     "internal/infrastructure/postgres/user_repository.go": {
       "hash": "ebc8d117ab9b489514171fa9536aaa72b3961f63579514d49ae79c274917d0c7",
       "components": [
@@ -12,7 +99,8 @@
             "file": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/infrastructure/postgres/user_repository.go",
             "line": 9,
             "column": 6
-          }
+          },
+          "is_cross_cutting": false
         }
       ],
       "dependencies": [
@@ -52,7 +140,8 @@
             "file": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/application/user/service.go",
             "line": 8,
             "column": 6
-          }
+          },
+          "is_cross_cutting": false
         }
       ],
       "dependencies": [
@@ -68,91 +157,6 @@
           "import_path": "github.com/example/app/internal/domain/user"
         }
       ]
-    },
-    "internal/domain/user/bad_dependency.go": {
-      "hash": "a991f9a9731c8bd4a3b819ee3d7676a9835fda2a2e23be384b8153f1e912c280",
-      "components": [],
-      "dependencies": [
-        {
-          "from": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/domain/user::<file>",
-          "to": "github.com/example/app/internal/infrastructure/postgres::<package>",
-          "kind": "Import",
-          "location": {
-            "file": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/domain/user/bad_dependency.go",
-            "line": 4,
-            "column": 2
-          },
-          "import_path": "github.com/example/app/internal/infrastructure/postgres"
-        }
-      ]
-    },
-    "internal/domain/user/entity.go": {
-      "hash": "eb67f819a460362f81cffd3ee52ccc0ed6942c03cb17fb1c29204cc37377a870",
-      "components": [
-        {
-          "id": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/domain/user::UserRepository",
-          "name": "UserRepository",
-          "kind": {
-            "Port": {
-              "name": "UserRepository",
-              "methods": [
-                {
-                  "name": "Save",
-                  "parameters": "(user *User)",
-                  "return_type": "error"
-                },
-                {
-                  "name": "FindByID",
-                  "parameters": "(id string)",
-                  "return_type": "(*User, error)"
-                },
-                {
-                  "name": "Delete",
-                  "parameters": "(id string)",
-                  "return_type": "error"
-                }
-              ]
-            }
-          },
-          "layer": "Domain",
-          "location": {
-            "file": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/domain/user/entity.go",
-            "line": 11,
-            "column": 6
-          }
-        },
-        {
-          "id": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/domain/user::User",
-          "name": "User",
-          "kind": {
-            "Entity": {
-              "name": "User",
-              "fields": [
-                {
-                  "name": "ID",
-                  "type_name": "string"
-                },
-                {
-                  "name": "Name",
-                  "type_name": "string"
-                },
-                {
-                  "name": "Email",
-                  "type_name": "string"
-                }
-              ],
-              "methods": []
-            }
-          },
-          "layer": "Domain",
-          "location": {
-            "file": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/domain/user/entity.go",
-            "line": 4,
-            "column": 6
-          }
-        }
-      ],
-      "dependencies": []
     }
   }
 }

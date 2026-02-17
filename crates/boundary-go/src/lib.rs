@@ -254,6 +254,7 @@ fn extract_interfaces(
                 line: start_row + 1,
                 column: start_col + 1,
             },
+            is_cross_cutting: false,
         });
     }
 }
@@ -319,6 +320,7 @@ fn extract_structs(query: &Query, parsed: &ParsedFile, pkg: &str, components: &m
                 line: start_row + 1,
                 column: start_col + 1,
             },
+            is_cross_cutting: false,
         });
     }
 }

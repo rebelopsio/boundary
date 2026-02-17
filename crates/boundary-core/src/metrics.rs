@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
 use crate::graph::DependencyGraph;
-use crate::metrics_report::{DependencyDepthMetrics, MetricsReport};
+use crate::metrics_report::{ClassificationCoverage, DependencyDepthMetrics, MetricsReport};
 use crate::types::{
     ArchLayer, Component, ComponentKind, Severity, SourceLocation, Violation, ViolationKind,
 };
@@ -94,6 +94,10 @@ fn detect_layer_violations(
         .unwrap_or(Severity::Error);
 
     for (src, tgt, edge) in graph.edges_with_nodes() {
+        if src.is_cross_cutting || tgt.is_cross_cutting {
+            continue;
+        }
+
         let (Some(from_layer), Some(to_layer)) = (src.layer, tgt.layer) else {
             continue;
         };
@@ -257,6 +261,9 @@ fn detect_pattern_violations(
 
     // Check 2: DB access in domain layer (domain importing infrastructure paths)
     for (src, _tgt, edge) in graph.edges_with_nodes() {
+        if src.is_cross_cutting {
+            continue;
+        }
         if src.layer != Some(ArchLayer::Domain) {
             continue;
         }
@@ -285,6 +292,9 @@ fn detect_pattern_violations(
 
     // Check 3: Domain entity directly depending on infrastructure component
     for (src, tgt, edge) in graph.edges_with_nodes() {
+        if src.is_cross_cutting || tgt.is_cross_cutting {
+            continue;
+        }
         if src.layer == Some(ArchLayer::Domain) && tgt.layer == Some(ArchLayer::Infrastructure) {
             // Already covered by layer boundary violations, but add specific
             // "missing repository pattern" detail if the target looks like a concrete impl
@@ -331,6 +341,9 @@ fn calculate_layer_isolation(graph: &DependencyGraph) -> f64 {
     let mut correct = 0u64;
 
     for (src, tgt, _) in &edges {
+        if src.is_cross_cutting || tgt.is_cross_cutting {
+            continue;
+        }
         match (src.layer, tgt.layer) {
             (Some(from_layer), Some(to_layer)) => {
                 if from_layer == to_layer {
@@ -364,7 +377,16 @@ fn calculate_dependency_direction(graph: &DependencyGraph) -> f64 {
         return 100.0;
     }
 
-    let correct = edges
+    let non_cross_cutting: Vec<_> = edges
+        .iter()
+        .filter(|(src, tgt, _)| !src.is_cross_cutting && !tgt.is_cross_cutting)
+        .collect();
+
+    if non_cross_cutting.is_empty() {
+        return 100.0;
+    }
+
+    let correct = non_cross_cutting
         .iter()
         .filter(|(src, tgt, _)| match (src.layer, tgt.layer) {
             (Some(from), Some(to)) => !from.violates_dependency_on(&to),
@@ -372,7 +394,7 @@ fn calculate_dependency_direction(graph: &DependencyGraph) -> f64 {
         })
         .count();
 
-    (correct as f64 / edges.len() as f64) * 100.0
+    (correct as f64 / non_cross_cutting.len() as f64) * 100.0
 }
 
 /// Interface coverage: ratio of ports to total components (higher = better separation).
@@ -479,6 +501,9 @@ fn compute_metrics(
     // Layer coupling
     let layer_coupling = graph.layer_coupling_matrix();
 
+    // Classification coverage
+    let classification_coverage = compute_classification_coverage(graph);
+
     MetricsReport {
         components_by_kind,
         components_by_layer,
@@ -488,6 +513,53 @@ fn compute_metrics(
             avg_depth,
         },
         layer_coupling,
+        classification_coverage: Some(classification_coverage),
+    }
+}
+
+fn compute_classification_coverage(graph: &DependencyGraph) -> ClassificationCoverage {
+    let nodes = graph.nodes();
+    let total_components = nodes.len();
+
+    let mut classified = 0usize;
+    let mut cross_cutting = 0usize;
+    let mut unclassified = 0usize;
+    let mut unclassified_dirs: Vec<String> = Vec::new();
+
+    for node in &nodes {
+        if node.is_cross_cutting {
+            cross_cutting += 1;
+        } else if node.layer.is_some() {
+            classified += 1;
+        } else {
+            unclassified += 1;
+            // Extract parent directory from component ID
+            let id = &node.id.0;
+            if let Some(dir) = id.rsplit_once("::").map(|(pkg, _)| pkg.to_string()) {
+                if !unclassified_dirs.contains(&dir) {
+                    unclassified_dirs.push(dir);
+                }
+            }
+        }
+    }
+
+    // Sort and truncate to ~10 entries
+    unclassified_dirs.sort();
+    unclassified_dirs.truncate(10);
+
+    let coverage_percentage = if total_components > 0 {
+        ((classified + cross_cutting) as f64 / total_components as f64) * 100.0
+    } else {
+        100.0
+    };
+
+    ClassificationCoverage {
+        total_components,
+        classified,
+        cross_cutting,
+        unclassified,
+        coverage_percentage,
+        unclassified_paths: unclassified_dirs,
     }
 }
 
@@ -514,6 +586,7 @@ mod tests {
                 line: 1,
                 column: 1,
             },
+            is_cross_cutting: false,
         }
     }
 
@@ -614,5 +687,139 @@ mod tests {
         assert_eq!(result.dependency_count, 0);
         assert!(result.violations.is_empty());
         assert!(result.metrics.is_some());
+    }
+
+    fn make_cross_cutting_component(id: &str, name: &str, layer: Option<ArchLayer>) -> Component {
+        Component {
+            id: ComponentId(id.to_string()),
+            name: name.to_string(),
+            kind: ComponentKind::Entity(EntityInfo {
+                name: name.to_string(),
+                fields: vec![],
+                methods: vec![],
+            }),
+            layer,
+            location: SourceLocation {
+                file: PathBuf::from("test.go"),
+                line: 1,
+                column: 1,
+            },
+            is_cross_cutting: true,
+        }
+    }
+
+    #[test]
+    fn test_cross_cutting_excluded_from_layer_violations() {
+        let mut graph = DependencyGraph::new();
+        // Domain -> Infrastructure would normally be a violation
+        let c1 = make_component("domain", "Entity", Some(ArchLayer::Domain));
+        let c2 = make_cross_cutting_component("infra", "Logger", Some(ArchLayer::Infrastructure));
+        graph.add_component(&c1);
+        graph.add_component(&c2);
+        graph.add_dependency(&make_dep("domain", "infra"));
+
+        let config = Config::default();
+        let violations = detect_violations(&graph, &config);
+
+        let layer_violations: Vec<_> = violations
+            .iter()
+            .filter(|v| matches!(v.kind, ViolationKind::LayerBoundary { .. }))
+            .collect();
+        assert!(
+            layer_violations.is_empty(),
+            "cross-cutting target should suppress layer violations"
+        );
+    }
+
+    #[test]
+    fn test_cross_cutting_source_excluded_from_violations() {
+        let mut graph = DependencyGraph::new();
+        let c1 = make_cross_cutting_component("utils", "Utils", Some(ArchLayer::Domain));
+        let c2 = make_component("infra", "Repo", Some(ArchLayer::Infrastructure));
+        graph.add_component(&c1);
+        graph.add_component(&c2);
+        graph.add_dependency(&make_dep("utils", "infra"));
+
+        let config = Config::default();
+        let violations = detect_violations(&graph, &config);
+
+        let layer_violations: Vec<_> = violations
+            .iter()
+            .filter(|v| matches!(v.kind, ViolationKind::LayerBoundary { .. }))
+            .collect();
+        assert!(
+            layer_violations.is_empty(),
+            "cross-cutting source should suppress layer violations"
+        );
+    }
+
+    #[test]
+    fn test_cross_cutting_excluded_from_layer_isolation() {
+        let mut graph = DependencyGraph::new();
+        // This edge would normally reduce isolation score
+        let c1 = make_component("domain", "Entity", Some(ArchLayer::Domain));
+        let c2 = make_cross_cutting_component("infra", "Logger", Some(ArchLayer::Infrastructure));
+        graph.add_component(&c1);
+        graph.add_component(&c2);
+        graph.add_dependency(&make_dep("domain", "infra"));
+
+        let isolation = calculate_layer_isolation(&graph);
+        assert_eq!(
+            isolation, 100.0,
+            "cross-cutting edges should be excluded from isolation"
+        );
+    }
+
+    #[test]
+    fn test_cross_cutting_excluded_from_dependency_direction() {
+        let mut graph = DependencyGraph::new();
+        let c1 = make_component("domain", "Entity", Some(ArchLayer::Domain));
+        let c2 = make_cross_cutting_component("infra", "Logger", Some(ArchLayer::Infrastructure));
+        graph.add_component(&c1);
+        graph.add_component(&c2);
+        graph.add_dependency(&make_dep("domain", "infra"));
+
+        let direction = calculate_dependency_direction(&graph);
+        assert_eq!(
+            direction, 100.0,
+            "cross-cutting edges should be excluded from dependency direction"
+        );
+    }
+
+    #[test]
+    fn test_classification_coverage_all_classified() {
+        let mut graph = DependencyGraph::new();
+        let c1 = make_component("a", "A", Some(ArchLayer::Domain));
+        let c2 = make_component("b", "B", Some(ArchLayer::Application));
+        graph.add_component(&c1);
+        graph.add_component(&c2);
+
+        let coverage = compute_classification_coverage(&graph);
+        assert_eq!(coverage.total_components, 2);
+        assert_eq!(coverage.classified, 2);
+        assert_eq!(coverage.cross_cutting, 0);
+        assert_eq!(coverage.unclassified, 0);
+        assert!((coverage.coverage_percentage - 100.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_classification_coverage_mixed() {
+        let mut graph = DependencyGraph::new();
+        let c1 = make_component("domain::Entity", "Entity", Some(ArchLayer::Domain));
+        let c2 = make_cross_cutting_component("utils::Logger", "Logger", None);
+        let c3 = make_component("unknown::Foo", "Foo", None);
+        graph.add_component(&c1);
+        graph.add_component(&c2);
+        graph.add_component(&c3);
+
+        let coverage = compute_classification_coverage(&graph);
+        assert_eq!(coverage.total_components, 3);
+        assert_eq!(coverage.classified, 1);
+        assert_eq!(coverage.cross_cutting, 1);
+        assert_eq!(coverage.unclassified, 1);
+        // (1 + 1) / 3 * 100 = 66.67
+        assert!((coverage.coverage_percentage - 66.66666666666667).abs() < 0.01);
+        assert_eq!(coverage.unclassified_paths.len(), 1);
+        assert_eq!(coverage.unclassified_paths[0], "unknown");
     }
 }

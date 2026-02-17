@@ -13,6 +13,7 @@ pub struct GraphNode {
     pub id: ComponentId,
     pub name: String,
     pub layer: Option<ArchLayer>,
+    pub is_cross_cutting: bool,
 }
 
 /// Edge in the dependency graph
@@ -46,6 +47,7 @@ impl DependencyGraph {
             id: component.id.clone(),
             name: component.name.clone(),
             layer: component.layer,
+            is_cross_cutting: component.is_cross_cutting,
         };
         let idx = self.graph.add_node(node);
         self.index.insert(component.id.clone(), idx);
@@ -53,7 +55,12 @@ impl DependencyGraph {
     }
 
     /// Ensure a component ID exists as a node (create a minimal node if needed).
-    pub fn ensure_node(&mut self, id: &ComponentId, layer: Option<ArchLayer>) -> NodeIndex {
+    pub fn ensure_node(
+        &mut self,
+        id: &ComponentId,
+        layer: Option<ArchLayer>,
+        is_cross_cutting: bool,
+    ) -> NodeIndex {
         if let Some(&idx) = self.index.get(id) {
             return idx;
         }
@@ -61,6 +68,7 @@ impl DependencyGraph {
             id: id.clone(),
             name: id.0.clone(),
             layer,
+            is_cross_cutting,
         };
         let idx = self.graph.add_node(node);
         self.index.insert(id.clone(), idx);
@@ -69,8 +77,8 @@ impl DependencyGraph {
 
     /// Add a dependency as an edge.
     pub fn add_dependency(&mut self, dep: &Dependency) {
-        let from_idx = self.ensure_node(&dep.from, None);
-        let to_idx = self.ensure_node(&dep.to, None);
+        let from_idx = self.ensure_node(&dep.from, None, false);
+        let to_idx = self.ensure_node(&dep.to, None, false);
         let edge = GraphEdge {
             kind: dep.kind.clone(),
             location: dep.location.clone(),
@@ -114,11 +122,15 @@ impl DependencyGraph {
     pub fn nodes_by_layer(&self) -> HashMap<String, usize> {
         let mut counts: HashMap<String, usize> = HashMap::new();
         for node in self.graph.node_weights() {
-            let key = match node.layer {
-                Some(layer) => layer.to_string(),
-                None => "unclassified".to_string(),
-            };
-            *counts.entry(key).or_insert(0) += 1;
+            if node.is_cross_cutting {
+                *counts.entry("cross_cutting".to_string()).or_insert(0) += 1;
+            } else {
+                let key = match node.layer {
+                    Some(layer) => layer.to_string(),
+                    None => "unclassified".to_string(),
+                };
+                *counts.entry(key).or_insert(0) += 1;
+            }
         }
         counts
     }
@@ -206,6 +218,7 @@ mod tests {
                 line: 1,
                 column: 1,
             },
+            is_cross_cutting: false,
         }
     }
 

@@ -23,6 +23,7 @@ pub struct LayerClassifier {
     infrastructure: GlobSet,
     presentation: GlobSet,
     overrides: Vec<LayerOverride>,
+    cross_cutting: GlobSet,
 }
 
 fn build_globset(patterns: &[String]) -> GlobSet {
@@ -61,6 +62,7 @@ impl LayerClassifier {
             infrastructure: build_globset(&config.infrastructure),
             presentation: build_globset(&config.presentation),
             overrides,
+            cross_cutting: build_globset(&config.cross_cutting),
         }
     }
 
@@ -77,6 +79,12 @@ impl LayerClassifier {
 
         // No override matched — use global patterns
         self.classify_global(&normalized)
+    }
+
+    /// Check if a path matches cross-cutting concern patterns.
+    pub fn is_cross_cutting(&self, path: &str) -> bool {
+        let normalized = path.replace('\\', "/");
+        self.cross_cutting.is_match(&normalized)
     }
 
     /// Classify an import path string into an architectural layer.
@@ -348,5 +356,59 @@ mod tests {
             classifier.classify_import("services/auth/core/user"),
             Some(ArchLayer::Domain)
         );
+    }
+
+    #[test]
+    fn test_is_cross_cutting_matches() {
+        let config = LayersConfig {
+            cross_cutting: vec![
+                "common/utils/**".to_string(),
+                "pkg/logger/**".to_string(),
+                "pkg/errors/**".to_string(),
+            ],
+            ..LayersConfig::default()
+        };
+        let classifier = LayerClassifier::new(&config);
+
+        assert!(classifier.is_cross_cutting("common/utils/helpers.go"));
+        assert!(classifier.is_cross_cutting("pkg/logger/zap.go"));
+        assert!(classifier.is_cross_cutting("pkg/errors/wrap.go"));
+    }
+
+    #[test]
+    fn test_is_cross_cutting_no_match() {
+        let config = LayersConfig {
+            cross_cutting: vec!["common/utils/**".to_string()],
+            ..LayersConfig::default()
+        };
+        let classifier = LayerClassifier::new(&config);
+
+        assert!(!classifier.is_cross_cutting("internal/domain/user.go"));
+        assert!(!classifier.is_cross_cutting("pkg/auth/service.go"));
+    }
+
+    #[test]
+    fn test_cross_cutting_empty_patterns() {
+        let config = LayersConfig::default();
+        let classifier = LayerClassifier::new(&config);
+
+        assert!(!classifier.is_cross_cutting("common/utils/helpers.go"));
+        assert!(!classifier.is_cross_cutting("any/path.go"));
+    }
+
+    #[test]
+    fn test_cross_cutting_independent_of_layer() {
+        let config = LayersConfig {
+            cross_cutting: vec!["**/domain/**".to_string()],
+            ..LayersConfig::default()
+        };
+        let classifier = LayerClassifier::new(&config);
+
+        // Path matches both domain layer and cross-cutting
+        assert_eq!(
+            classifier.classify("internal/domain/user.go"),
+            Some(ArchLayer::Domain)
+        );
+        assert!(classifier.is_cross_cutting("internal/domain/user.go"));
     }
 }

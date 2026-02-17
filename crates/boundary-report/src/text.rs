@@ -108,16 +108,17 @@ pub fn format_report(result: &AnalysisResult) -> String {
 fn format_score_section(score: &boundary_core::metrics::ArchitectureScore) -> String {
     let mut out = String::new();
 
+    let overall_str = format!("{:.1}", score.overall);
     let overall_color = if score.overall >= 80.0 {
-        score.overall.to_string().green()
+        overall_str.green()
     } else if score.overall >= 50.0 {
-        score.overall.to_string().yellow()
+        overall_str.yellow()
     } else {
-        score.overall.to_string().red()
+        overall_str.red()
     };
 
     out.push_str(&format!(
-        "{}: {:.1}/100\n",
+        "{}: {}/100\n",
         "Overall Score".bold(),
         overall_color
     ));

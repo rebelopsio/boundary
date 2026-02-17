@@ -319,30 +319,45 @@ fn detect_pattern_violations(
 }
 
 /// Layer isolation: percentage of cross-layer edges that go in the correct direction.
+/// Edges involving unclassified components count against isolation since they
+/// represent components that haven't been properly placed in a layer.
 fn calculate_layer_isolation(graph: &DependencyGraph) -> f64 {
-    let mut total_cross_layer = 0u64;
-    let mut correct = 0u64;
-
-    for (src, tgt, _) in graph.edges_with_nodes() {
-        let (Some(from_layer), Some(to_layer)) = (src.layer, tgt.layer) else {
-            continue;
-        };
-        if from_layer == to_layer {
-            continue;
-        }
-        total_cross_layer += 1;
-        if !from_layer.violates_dependency_on(&to_layer) {
-            correct += 1;
-        }
-    }
-
-    if total_cross_layer == 0 {
+    let edges = graph.edges_with_nodes();
+    if edges.is_empty() {
         return 100.0;
     }
-    (correct as f64 / total_cross_layer as f64) * 100.0
+
+    let mut total = 0u64;
+    let mut correct = 0u64;
+
+    for (src, tgt, _) in &edges {
+        match (src.layer, tgt.layer) {
+            (Some(from_layer), Some(to_layer)) => {
+                if from_layer == to_layer {
+                    // Same-layer edges are fine, don't count them
+                    continue;
+                }
+                total += 1;
+                if !from_layer.violates_dependency_on(&to_layer) {
+                    correct += 1;
+                }
+            }
+            _ => {
+                // Edges involving unclassified components penalize isolation
+                total += 1;
+            }
+        }
+    }
+
+    if total == 0 {
+        return 100.0;
+    }
+    (correct as f64 / total as f64) * 100.0
 }
 
-/// Dependency direction: percentage of all edges that flow outward or same-layer.
+/// Dependency direction: percentage of all edges that flow in a valid direction.
+/// Edges involving unclassified components are not counted as correct — they
+/// represent unresolved architecture that needs classification.
 fn calculate_dependency_direction(graph: &DependencyGraph) -> f64 {
     let edges = graph.edges_with_nodes();
     if edges.is_empty() {
@@ -351,11 +366,9 @@ fn calculate_dependency_direction(graph: &DependencyGraph) -> f64 {
 
     let correct = edges
         .iter()
-        .filter(|(src, tgt, _)| {
-            match (src.layer, tgt.layer) {
-                (Some(from), Some(to)) => !from.violates_dependency_on(&to),
-                _ => true, // unclassified edges are not counted as violations
-            }
+        .filter(|(src, tgt, _)| match (src.layer, tgt.layer) {
+            (Some(from), Some(to)) => !from.violates_dependency_on(&to),
+            _ => false, // unclassified edges are not correct
         })
         .count();
 

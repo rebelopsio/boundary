@@ -57,6 +57,9 @@ enum Commands {
         /// Use incremental analysis (cache unchanged files)
         #[arg(long)]
         incremental: bool,
+        /// Analyze each service independently (monorepo support)
+        #[arg(long)]
+        per_service: bool,
     },
     /// Analyze and exit with code 0 (pass) or 1 (fail)
     Check {
@@ -86,6 +89,9 @@ enum Commands {
         /// Use incremental analysis (cache unchanged files)
         #[arg(long)]
         incremental: bool,
+        /// Analyze each service independently (monorepo support)
+        #[arg(long)]
+        per_service: bool,
     },
     /// Create a default .boundary.toml configuration file
     Init {
@@ -145,6 +151,7 @@ fn main() {
             compact,
             languages,
             incremental,
+            per_service,
         } => cmd_analyze(
             &path,
             config.as_deref(),
@@ -152,6 +159,7 @@ fn main() {
             compact,
             languages.as_deref(),
             incremental,
+            per_service,
         ),
         Commands::Check {
             path,
@@ -163,6 +171,7 @@ fn main() {
             track,
             no_regression,
             incremental,
+            per_service,
         } => cmd_check(
             &path,
             &fail_on,
@@ -173,6 +182,7 @@ fn main() {
             track,
             no_regression,
             incremental,
+            per_service,
         ),
         Commands::Init { force } => cmd_init(force),
         Commands::Diagram {
@@ -219,9 +229,27 @@ fn cmd_analyze(
     compact: bool,
     languages: Option<&[String]>,
     incremental: bool,
+    per_service: bool,
 ) -> Result<()> {
     validate_path(path)?;
     let config = load_config(path, config_path)?;
+
+    if per_service {
+        let analyzers = create_analyzers(path, &config, languages)?;
+        let pipeline = AnalysisPipeline::new(analyzers, config);
+        let multi = pipeline.analyze_per_service(path)?;
+
+        let report = match format {
+            OutputFormat::Text => text::format_multi_service_report(&multi),
+            OutputFormat::Json => json::format_multi_service_report(&multi, compact),
+            OutputFormat::Markdown => {
+                boundary_report::markdown::format_multi_service_report(&multi)
+            }
+        };
+        println!("{report}");
+        return Ok(());
+    }
+
     let analysis = run_analysis(path, &config, languages, incremental)?;
 
     let report = match format {
@@ -244,10 +272,37 @@ fn cmd_check(
     track: bool,
     no_regression: bool,
     incremental: bool,
+    per_service: bool,
 ) -> Result<()> {
     validate_path(path)?;
     let config = load_config(path, config_path)?;
     let fail_on: Severity = fail_on_str.parse()?;
+
+    if per_service {
+        let analyzers = create_analyzers(path, &config, languages)?;
+        let pipeline = AnalysisPipeline::new(analyzers, config);
+        let multi = pipeline.analyze_per_service(path)?;
+
+        let report = match format {
+            OutputFormat::Text => text::format_multi_service_report(&multi),
+            OutputFormat::Json => json::format_multi_service_report(&multi, compact),
+            OutputFormat::Markdown => {
+                boundary_report::markdown::format_multi_service_report(&multi)
+            }
+        };
+        println!("{report}");
+
+        // Check if any service has failing violations
+        let has_failures = multi
+            .services
+            .iter()
+            .any(|s| s.result.violations.iter().any(|v| v.severity >= fail_on));
+        if has_failures {
+            process::exit(1);
+        }
+        return Ok(());
+    }
+
     let analysis = run_analysis(path, &config, languages, incremental)?;
 
     // Evolution tracking
@@ -376,18 +431,22 @@ pub struct FullAnalysis {
     pub graph: DependencyGraph,
 }
 
+/// A dependency with its resolved layer info and architecture context.
+type ClassifiedDependency = (
+    boundary_core::types::Dependency,
+    Option<boundary_core::types::ArchLayer>,
+    Option<boundary_core::types::ArchLayer>,
+    bool,
+    boundary_core::types::ArchitectureMode,
+);
+
 /// Extracted per-file data before merging into the graph.
 struct FileResult {
     components: Vec<(
         boundary_core::types::Component,
         Option<boundary_core::types::ArchLayer>,
     )>,
-    dependencies: Vec<(
-        boundary_core::types::Dependency,
-        Option<boundary_core::types::ArchLayer>,
-        Option<boundary_core::types::ArchLayer>,
-        bool,
-    )>,
+    dependencies: Vec<ClassifiedDependency>,
 }
 
 /// Create analyzers based on languages config or auto-detection.
@@ -560,6 +619,7 @@ fn run_analysis(
                     .to_string();
 
                 let is_cross_cutting = classifier.is_cross_cutting(&rel_path);
+                let arch_mode = classifier.architecture_mode(&rel_path);
 
                 // Check cache for incremental analysis
                 if incremental {
@@ -574,6 +634,7 @@ fn run_analysis(
                                     comp.layer = file_layer;
                                 }
                                 comp.is_cross_cutting = is_cross_cutting;
+                                comp.architecture_mode = arch_mode;
                                 let layer = comp.layer;
                                 (comp, layer)
                             })
@@ -588,7 +649,13 @@ fn run_analysis(
                                     .as_deref()
                                     .and_then(|p| classifier.classify_import(p));
                                 let from_layer = classifier.classify(&rel_path);
-                                (dep.clone(), from_layer, to_layer, is_cross_cutting)
+                                (
+                                    dep.clone(),
+                                    from_layer,
+                                    to_layer,
+                                    is_cross_cutting,
+                                    arch_mode,
+                                )
                             })
                             .collect();
 
@@ -622,6 +689,7 @@ fn run_analysis(
                             comp.layer = file_layer;
                         }
                         comp.is_cross_cutting = is_cross_cutting;
+                        comp.architecture_mode = arch_mode;
                         let layer = comp.layer;
                         (comp, layer)
                     })
@@ -637,7 +705,7 @@ fn run_analysis(
                             .as_deref()
                             .and_then(|p| classifier.classify_import(p));
                         let from_layer = classifier.classify(&rel_path);
-                        (dep, from_layer, to_layer, is_cross_cutting)
+                        (dep, from_layer, to_layer, is_cross_cutting, arch_mode)
                     })
                     .collect();
 
@@ -664,7 +732,7 @@ fn run_analysis(
                 let cached_deps: Vec<_> = fr
                     .dependencies
                     .iter()
-                    .map(|(dep, _, _, _)| dep.clone())
+                    .map(|(dep, _, _, _, _)| dep.clone())
                     .collect();
                 cache.insert(
                     rel_path,
@@ -681,8 +749,8 @@ fn run_analysis(
                 graph.add_component(comp);
                 all_components.push(comp.clone());
             }
-            for (dep, from_layer, to_layer, is_cc) in &fr.dependencies {
-                graph.ensure_node(&dep.from, *from_layer, *is_cc);
+            for (dep, from_layer, to_layer, is_cc, arch_mode) in &fr.dependencies {
+                graph.ensure_node_with_mode(&dep.from, *from_layer, *is_cc, *arch_mode);
                 graph.ensure_node(&dep.to, *to_layer, false);
                 graph.add_dependency(dep);
             }

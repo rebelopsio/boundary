@@ -178,6 +178,7 @@ mod tests {
                 name: name.to_string(),
                 fields: vec![],
                 methods: vec![],
+                is_active_record: false,
             }),
             layer,
             location: SourceLocation {
@@ -186,6 +187,7 @@ mod tests {
                 column: 1,
             },
             is_cross_cutting: false,
+            architecture_mode: ArchitectureMode::Ddd,
         }
     }
 

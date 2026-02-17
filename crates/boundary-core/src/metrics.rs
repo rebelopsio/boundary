@@ -6,8 +6,86 @@ use crate::config::Config;
 use crate::graph::DependencyGraph;
 use crate::metrics_report::{ClassificationCoverage, DependencyDepthMetrics, MetricsReport};
 use crate::types::{
-    ArchLayer, Component, ComponentKind, Severity, SourceLocation, Violation, ViolationKind,
+    ArchLayer, ArchitectureMode, Component, ComponentKind, Severity, SourceLocation, Violation,
+    ViolationKind,
 };
+
+/// Result for a single service in a multi-service analysis.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceAnalysisResult {
+    pub service_name: String,
+    pub result: AnalysisResult,
+}
+
+/// Result of analyzing a monorepo with multiple services.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiServiceResult {
+    pub services: Vec<ServiceAnalysisResult>,
+    pub aggregate: AnalysisResult,
+    pub shared_modules: Vec<SharedModule>,
+}
+
+/// A module shared between multiple services.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SharedModule {
+    pub path: String,
+    pub used_by: Vec<String>,
+}
+
+/// Aggregate multiple service results into a combined result.
+pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
+    if services.is_empty() {
+        return AnalysisResult {
+            score: ArchitectureScore {
+                overall: 100.0,
+                layer_isolation: 100.0,
+                dependency_direction: 100.0,
+                interface_coverage: 100.0,
+            },
+            violations: vec![],
+            component_count: 0,
+            dependency_count: 0,
+            metrics: None,
+        };
+    }
+
+    let total_components: usize = services.iter().map(|s| s.result.component_count).sum();
+    let total_deps: usize = services.iter().map(|s| s.result.dependency_count).sum();
+
+    // Weighted average by component count
+    let mut overall = 0.0f64;
+    let mut layer_isolation = 0.0f64;
+    let mut dependency_direction = 0.0f64;
+    let mut interface_coverage = 0.0f64;
+
+    if total_components > 0 {
+        for s in services {
+            let weight = s.result.component_count as f64 / total_components as f64;
+            overall += s.result.score.overall * weight;
+            layer_isolation += s.result.score.layer_isolation * weight;
+            dependency_direction += s.result.score.dependency_direction * weight;
+            interface_coverage += s.result.score.interface_coverage * weight;
+        }
+    }
+
+    let all_violations: Vec<_> = services
+        .iter()
+        .flat_map(|s| s.result.violations.clone())
+        .collect();
+
+    AnalysisResult {
+        score: ArchitectureScore {
+            overall,
+            layer_isolation,
+            dependency_direction,
+            interface_coverage,
+        },
+        violations: all_violations,
+        component_count: total_components,
+        dependency_count: total_deps,
+        metrics: None,
+    }
+}
 
 /// Breakdown of architecture scores.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,6 +142,9 @@ pub fn detect_violations(graph: &DependencyGraph, config: &Config) -> Vec<Violat
     // Pattern violations (DDD structural checks)
     detect_pattern_violations(graph, config, &mut violations);
 
+    // Init function coupling violations
+    detect_init_violations(graph, config, &mut violations);
+
     // Custom rules
     if !config.rules.custom_rules.is_empty() {
         match crate::custom_rules::compile_rules(&config.rules.custom_rules) {
@@ -95,6 +176,11 @@ fn detect_layer_violations(
 
     for (src, tgt, edge) in graph.edges_with_nodes() {
         if src.is_cross_cutting || tgt.is_cross_cutting {
+            continue;
+        }
+
+        // Service-oriented mode skips all layer boundary checks
+        if src.architecture_mode == ArchitectureMode::ServiceOriented {
             continue;
         }
 
@@ -264,6 +350,10 @@ fn detect_pattern_violations(
         if src.is_cross_cutting {
             continue;
         }
+        // ActiveRecord mode allows domain to import infrastructure
+        if src.architecture_mode == ArchitectureMode::ActiveRecord {
+            continue;
+        }
         if src.layer != Some(ArchLayer::Domain) {
             continue;
         }
@@ -293,6 +383,10 @@ fn detect_pattern_violations(
     // Check 3: Domain entity directly depending on infrastructure component
     for (src, tgt, edge) in graph.edges_with_nodes() {
         if src.is_cross_cutting || tgt.is_cross_cutting {
+            continue;
+        }
+        // ActiveRecord mode allows domain→infrastructure
+        if src.architecture_mode == ArchitectureMode::ActiveRecord {
             continue;
         }
         if src.layer == Some(ArchLayer::Domain) && tgt.layer == Some(ArchLayer::Infrastructure) {
@@ -328,6 +422,61 @@ fn detect_pattern_violations(
     }
 }
 
+fn detect_init_violations(
+    graph: &DependencyGraph,
+    config: &Config,
+    violations: &mut Vec<Violation>,
+) {
+    if !config.rules.detect_init_functions {
+        return;
+    }
+
+    let severity = config
+        .rules
+        .severities
+        .get("init_coupling")
+        .copied()
+        .unwrap_or(Severity::Warning);
+
+    for (src, tgt, edge) in graph.edges_with_nodes() {
+        // Only check edges from init functions (component ID contains "<init>")
+        if !src.id.0.contains("<init>") {
+            continue;
+        }
+
+        if src.is_cross_cutting || tgt.is_cross_cutting {
+            continue;
+        }
+
+        let (Some(from_layer), Some(to_layer)) = (src.layer, tgt.layer) else {
+            continue;
+        };
+
+        if from_layer.violates_dependency_on(&to_layer) {
+            let init_file = edge.location.file.to_string_lossy().to_string();
+            let called_package = tgt.id.0.clone();
+
+            violations.push(Violation {
+                kind: ViolationKind::InitFunctionCoupling {
+                    init_file: init_file.clone(),
+                    called_package: called_package.clone(),
+                    from_layer,
+                    to_layer,
+                },
+                severity,
+                location: edge.location.clone(),
+                message: format!(
+                    "init() function in {from_layer} layer calls into {to_layer} layer ({called_package})"
+                ),
+                suggestion: Some(
+                    "Move initialization logic out of init() or use dependency injection to avoid hidden cross-layer coupling."
+                        .to_string(),
+                ),
+            });
+        }
+    }
+}
+
 /// Layer isolation: percentage of cross-layer edges that go in the correct direction.
 /// Edges involving unclassified components count against isolation since they
 /// represent components that haven't been properly placed in a layer.
@@ -342,6 +491,10 @@ fn calculate_layer_isolation(graph: &DependencyGraph) -> f64 {
 
     for (src, tgt, _) in &edges {
         if src.is_cross_cutting || tgt.is_cross_cutting {
+            continue;
+        }
+        // Service-oriented mode is exempt from isolation scoring
+        if src.architecture_mode == ArchitectureMode::ServiceOriented {
             continue;
         }
         match (src.layer, tgt.layer) {
@@ -379,7 +532,11 @@ fn calculate_dependency_direction(graph: &DependencyGraph) -> f64 {
 
     let non_cross_cutting: Vec<_> = edges
         .iter()
-        .filter(|(src, tgt, _)| !src.is_cross_cutting && !tgt.is_cross_cutting)
+        .filter(|(src, tgt, _)| {
+            !src.is_cross_cutting
+                && !tgt.is_cross_cutting
+                && src.architecture_mode != ArchitectureMode::ServiceOriented
+        })
         .collect();
 
     if non_cross_cutting.is_empty() {
@@ -485,6 +642,7 @@ fn compute_metrics(
             ViolationKind::MissingPort { .. } => "missing_port",
             ViolationKind::CustomRule { .. } => "custom_rule",
             ViolationKind::DomainInfrastructureLeak { .. } => "domain_infrastructure_leak",
+            ViolationKind::InitFunctionCoupling { .. } => "init_coupling",
         };
         *violations_by_kind.entry(kind_name.to_string()).or_insert(0) += 1;
     }
@@ -579,6 +737,7 @@ mod tests {
                 name: name.to_string(),
                 fields: vec![],
                 methods: vec![],
+                is_active_record: false,
             }),
             layer,
             location: SourceLocation {
@@ -587,6 +746,7 @@ mod tests {
                 column: 1,
             },
             is_cross_cutting: false,
+            architecture_mode: ArchitectureMode::Ddd,
         }
     }
 
@@ -697,6 +857,7 @@ mod tests {
                 name: name.to_string(),
                 fields: vec![],
                 methods: vec![],
+                is_active_record: false,
             }),
             layer,
             location: SourceLocation {
@@ -705,6 +866,7 @@ mod tests {
                 column: 1,
             },
             is_cross_cutting: true,
+            architecture_mode: ArchitectureMode::Ddd,
         }
     }
 
@@ -783,6 +945,218 @@ mod tests {
         assert_eq!(
             direction, 100.0,
             "cross-cutting edges should be excluded from dependency direction"
+        );
+    }
+
+    fn make_component_with_mode(
+        id: &str,
+        name: &str,
+        layer: Option<ArchLayer>,
+        mode: ArchitectureMode,
+    ) -> Component {
+        Component {
+            id: ComponentId(id.to_string()),
+            name: name.to_string(),
+            kind: ComponentKind::Entity(EntityInfo {
+                name: name.to_string(),
+                fields: vec![],
+                methods: vec![],
+                is_active_record: false,
+            }),
+            layer,
+            location: SourceLocation {
+                file: PathBuf::from("test.go"),
+                line: 1,
+                column: 1,
+            },
+            is_cross_cutting: false,
+            architecture_mode: mode,
+        }
+    }
+
+    #[test]
+    fn test_service_oriented_suppresses_layer_violations() {
+        let mut graph = DependencyGraph::new();
+        let c1 = make_component_with_mode(
+            "domain",
+            "Entity",
+            Some(ArchLayer::Domain),
+            ArchitectureMode::ServiceOriented,
+        );
+        let c2 = make_component_with_mode(
+            "infra",
+            "Repo",
+            Some(ArchLayer::Infrastructure),
+            ArchitectureMode::ServiceOriented,
+        );
+        graph.add_component(&c1);
+        graph.add_component(&c2);
+        graph.add_dependency(&make_dep("domain", "infra"));
+
+        let config = Config::default();
+        let violations = detect_violations(&graph, &config);
+
+        let layer_violations: Vec<_> = violations
+            .iter()
+            .filter(|v| matches!(v.kind, ViolationKind::LayerBoundary { .. }))
+            .collect();
+        assert!(
+            layer_violations.is_empty(),
+            "service-oriented mode should suppress layer boundary violations"
+        );
+    }
+
+    #[test]
+    fn test_service_oriented_excluded_from_isolation() {
+        let mut graph = DependencyGraph::new();
+        let c1 = make_component_with_mode(
+            "domain",
+            "Entity",
+            Some(ArchLayer::Domain),
+            ArchitectureMode::ServiceOriented,
+        );
+        let c2 = make_component_with_mode(
+            "infra",
+            "Repo",
+            Some(ArchLayer::Infrastructure),
+            ArchitectureMode::ServiceOriented,
+        );
+        graph.add_component(&c1);
+        graph.add_component(&c2);
+        graph.add_dependency(&make_dep("domain", "infra"));
+
+        let isolation = calculate_layer_isolation(&graph);
+        assert_eq!(
+            isolation, 100.0,
+            "service-oriented edges should be excluded from isolation"
+        );
+    }
+
+    #[test]
+    fn test_service_oriented_excluded_from_direction() {
+        let mut graph = DependencyGraph::new();
+        let c1 = make_component_with_mode(
+            "domain",
+            "Entity",
+            Some(ArchLayer::Domain),
+            ArchitectureMode::ServiceOriented,
+        );
+        let c2 = make_component_with_mode(
+            "infra",
+            "Repo",
+            Some(ArchLayer::Infrastructure),
+            ArchitectureMode::ServiceOriented,
+        );
+        graph.add_component(&c1);
+        graph.add_component(&c2);
+        graph.add_dependency(&make_dep("domain", "infra"));
+
+        let direction = calculate_dependency_direction(&graph);
+        assert_eq!(
+            direction, 100.0,
+            "service-oriented edges should be excluded from dependency direction"
+        );
+    }
+
+    #[test]
+    fn test_active_record_suppresses_domain_infra_leak() {
+        let mut graph = DependencyGraph::new();
+        // A domain component that imports DB types
+        let c1 = make_component_with_mode(
+            "domain",
+            "User",
+            Some(ArchLayer::Domain),
+            ArchitectureMode::ActiveRecord,
+        );
+        let c2 = make_component_with_mode(
+            "infra",
+            "DB",
+            Some(ArchLayer::Infrastructure),
+            ArchitectureMode::ActiveRecord,
+        );
+        graph.add_component(&c1);
+        graph.add_component(&c2);
+        graph.add_dependency(&make_dep("domain", "infra"));
+
+        let config = Config::default();
+        let violations = detect_violations(&graph, &config);
+
+        let leak_violations: Vec<_> = violations
+            .iter()
+            .filter(|v| matches!(v.kind, ViolationKind::DomainInfrastructureLeak { .. }))
+            .collect();
+        assert!(
+            leak_violations.is_empty(),
+            "active-record mode should suppress domain-infra leak violations"
+        );
+    }
+
+    #[test]
+    fn test_ddd_mode_still_produces_violations() {
+        // Verify DDD mode (default) still catches violations
+        let mut graph = DependencyGraph::new();
+        let c1 = make_component("domain", "Entity", Some(ArchLayer::Domain));
+        let c2 = make_component("infra", "Repo", Some(ArchLayer::Infrastructure));
+        graph.add_component(&c1);
+        graph.add_component(&c2);
+        graph.add_dependency(&make_dep("domain", "infra"));
+
+        let config = Config::default();
+        let violations = detect_violations(&graph, &config);
+
+        let layer_violations: Vec<_> = violations
+            .iter()
+            .filter(|v| matches!(v.kind, ViolationKind::LayerBoundary { .. }))
+            .collect();
+        assert!(
+            !layer_violations.is_empty(),
+            "DDD mode should still produce layer boundary violations"
+        );
+    }
+
+    #[test]
+    fn test_init_coupling_detected() {
+        let mut graph = DependencyGraph::new();
+        // init component in application layer calling infrastructure
+        let c1 = make_component("app::<init>", "<init>", Some(ArchLayer::Application));
+        let c2 = make_component("infra::db", "db", Some(ArchLayer::Infrastructure));
+        graph.add_component(&c1);
+        graph.add_component(&c2);
+        graph.add_dependency(&make_dep("app::<init>", "infra::db"));
+
+        let config = Config::default();
+        let violations = detect_violations(&graph, &config);
+
+        let init_violations: Vec<_> = violations
+            .iter()
+            .filter(|v| matches!(v.kind, ViolationKind::InitFunctionCoupling { .. }))
+            .collect();
+        assert!(
+            !init_violations.is_empty(),
+            "should detect init function coupling"
+        );
+    }
+
+    #[test]
+    fn test_init_coupling_disabled_via_config() {
+        let mut graph = DependencyGraph::new();
+        let c1 = make_component("app::<init>", "<init>", Some(ArchLayer::Application));
+        let c2 = make_component("infra::db", "db", Some(ArchLayer::Infrastructure));
+        graph.add_component(&c1);
+        graph.add_component(&c2);
+        graph.add_dependency(&make_dep("app::<init>", "infra::db"));
+
+        let mut config = Config::default();
+        config.rules.detect_init_functions = false;
+
+        let violations = detect_violations(&graph, &config);
+        let init_violations: Vec<_> = violations
+            .iter()
+            .filter(|v| matches!(v.kind, ViolationKind::InitFunctionCoupling { .. }))
+            .collect();
+        assert!(
+            init_violations.is_empty(),
+            "init detection disabled should produce no init violations"
         );
     }
 

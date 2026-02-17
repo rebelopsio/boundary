@@ -127,7 +127,7 @@ dependencies = [
 
 [[package]]
 name = "boundary"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "boundary-core",
@@ -148,10 +148,11 @@ dependencies = [
 
 [[package]]
 name = "boundary-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "glob",
  "globset",
  "petgraph",
  "rayon",
@@ -168,7 +169,7 @@ dependencies = [
 
 [[package]]
 name = "boundary-go"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "boundary-core",
@@ -181,7 +182,7 @@ dependencies = [
 
 [[package]]
 name = "boundary-java"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "boundary-core",
@@ -194,7 +195,7 @@ dependencies = [
 
 [[package]]
 name = "boundary-lsp"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "boundary-core",
@@ -211,7 +212,7 @@ dependencies = [
 
 [[package]]
 name = "boundary-report"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "boundary-core",
@@ -223,7 +224,7 @@ dependencies = [
 
 [[package]]
 name = "boundary-rust"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "boundary-core",
@@ -236,7 +237,7 @@ dependencies = [
 
 [[package]]
 name = "boundary-typescript"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "boundary-core",
@@ -591,6 +592,12 @@ dependencies = [
  "wasip2",
  "wasip3",
 ]
+
+[[package]]
+name = "glob"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "globset"

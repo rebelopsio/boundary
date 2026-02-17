@@ -5,7 +5,9 @@ use petgraph::visit::EdgeRef;
 use serde::{Deserialize, Serialize};
 
 use crate::metrics_report::LayerCouplingMatrix;
-use crate::types::{ArchLayer, Component, ComponentId, Dependency, DependencyKind, SourceLocation};
+use crate::types::{
+    ArchLayer, ArchitectureMode, Component, ComponentId, Dependency, DependencyKind, SourceLocation,
+};
 
 /// Node in the dependency graph
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,6 +16,8 @@ pub struct GraphNode {
     pub name: String,
     pub layer: Option<ArchLayer>,
     pub is_cross_cutting: bool,
+    #[serde(default)]
+    pub architecture_mode: ArchitectureMode,
 }
 
 /// Edge in the dependency graph
@@ -48,6 +52,7 @@ impl DependencyGraph {
             name: component.name.clone(),
             layer: component.layer,
             is_cross_cutting: component.is_cross_cutting,
+            architecture_mode: component.architecture_mode,
         };
         let idx = self.graph.add_node(node);
         self.index.insert(component.id.clone(), idx);
@@ -61,6 +66,17 @@ impl DependencyGraph {
         layer: Option<ArchLayer>,
         is_cross_cutting: bool,
     ) -> NodeIndex {
+        self.ensure_node_with_mode(id, layer, is_cross_cutting, ArchitectureMode::Ddd)
+    }
+
+    /// Ensure a component ID exists as a node with a specific architecture mode.
+    pub fn ensure_node_with_mode(
+        &mut self,
+        id: &ComponentId,
+        layer: Option<ArchLayer>,
+        is_cross_cutting: bool,
+        architecture_mode: ArchitectureMode,
+    ) -> NodeIndex {
         if let Some(&idx) = self.index.get(id) {
             return idx;
         }
@@ -69,6 +85,7 @@ impl DependencyGraph {
             name: id.0.clone(),
             layer,
             is_cross_cutting,
+            architecture_mode,
         };
         let idx = self.graph.add_node(node);
         self.index.insert(id.clone(), idx);
@@ -211,6 +228,7 @@ mod tests {
                 name: name.to_string(),
                 fields: vec![],
                 methods: vec![],
+                is_active_record: false,
             }),
             layer,
             location: SourceLocation {
@@ -219,6 +237,7 @@ mod tests {
                 column: 1,
             },
             is_cross_cutting: false,
+            architecture_mode: ArchitectureMode::Ddd,
         }
     }
 

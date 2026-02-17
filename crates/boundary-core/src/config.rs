@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::types::Severity;
+use crate::types::{ArchitectureMode, Severity};
 
 /// Top-level configuration from `.boundary.toml`
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -24,6 +24,8 @@ pub struct ProjectConfig {
     pub languages: Vec<String>,
     #[serde(default)]
     pub exclude_patterns: Vec<String>,
+    #[serde(default)]
+    pub services_pattern: Option<String>,
 }
 
 fn default_languages() -> Vec<String> {
@@ -39,6 +41,7 @@ impl Default for ProjectConfig {
                 "**/*_test.go".to_string(),
                 "**/testdata/**".to_string(),
             ],
+            services_pattern: None,
         }
     }
 }
@@ -55,6 +58,8 @@ pub struct LayerOverrideConfig {
     pub infrastructure: Vec<String>,
     #[serde(default)]
     pub presentation: Vec<String>,
+    #[serde(default)]
+    pub architecture_mode: Option<ArchitectureMode>,
 }
 
 /// Glob patterns mapping file paths to architectural layers
@@ -72,6 +77,8 @@ pub struct LayersConfig {
     pub overrides: Vec<LayerOverrideConfig>,
     #[serde(default)]
     pub cross_cutting: Vec<String>,
+    #[serde(default)]
+    pub architecture_mode: ArchitectureMode,
 }
 
 fn default_domain_patterns() -> Vec<String> {
@@ -117,6 +124,7 @@ impl Default for LayersConfig {
             presentation: default_presentation_patterns(),
             overrides: Vec::new(),
             cross_cutting: Vec::new(),
+            architecture_mode: ArchitectureMode::default(),
         }
     }
 }
@@ -185,6 +193,12 @@ pub struct RulesConfig {
     pub min_score: Option<f64>,
     #[serde(default)]
     pub custom_rules: Vec<CustomRuleConfig>,
+    #[serde(default = "default_true")]
+    pub detect_init_functions: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_severities() -> HashMap<String, Severity> {
@@ -192,6 +206,7 @@ fn default_severities() -> HashMap<String, Severity> {
     m.insert("layer_boundary".to_string(), Severity::Error);
     m.insert("circular_dependency".to_string(), Severity::Error);
     m.insert("missing_port".to_string(), Severity::Warning);
+    m.insert("init_coupling".to_string(), Severity::Warning);
     m
 }
 
@@ -206,6 +221,7 @@ impl Default for RulesConfig {
             fail_on: default_fail_on(),
             min_score: None,
             custom_rules: Vec::new(),
+            detect_init_functions: true,
         }
     }
 }
@@ -284,6 +300,7 @@ fail_on = "error"
 layer_boundary = "error"
 circular_dependency = "error"
 missing_port = "warning"
+init_coupling = "warning"
 "#
         .to_string()
     }
@@ -398,6 +415,54 @@ cross_cutting = ["common/utils/**", "pkg/logger/**", "pkg/errors/**"]
         assert_eq!(config.layers.cross_cutting[0], "common/utils/**");
         assert_eq!(config.layers.cross_cutting[1], "pkg/logger/**");
         assert_eq!(config.layers.cross_cutting[2], "pkg/errors/**");
+    }
+
+    #[test]
+    fn test_architecture_mode_deserializes() {
+        let toml_str = r#"
+[layers]
+domain = ["**/domain/**"]
+architecture_mode = "active-record"
+
+[[layers.overrides]]
+scope = "services/legacy/**"
+architecture_mode = "service-oriented"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(
+            config.layers.architecture_mode,
+            ArchitectureMode::ActiveRecord
+        );
+        assert_eq!(
+            config.layers.overrides[0].architecture_mode,
+            Some(ArchitectureMode::ServiceOriented)
+        );
+    }
+
+    #[test]
+    fn test_architecture_mode_missing_backward_compat() {
+        let toml_str = r#"
+[layers]
+domain = ["**/domain/**"]
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.layers.architecture_mode, ArchitectureMode::Ddd);
+    }
+
+    #[test]
+    fn test_services_pattern_parses() {
+        let toml_str = r#"
+[project]
+services_pattern = "apps/*"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.project.services_pattern.as_deref(), Some("apps/*"));
+    }
+
+    #[test]
+    fn test_detect_init_functions_defaults_true() {
+        let config = Config::default();
+        assert!(config.rules.detect_init_functions);
     }
 
     #[test]

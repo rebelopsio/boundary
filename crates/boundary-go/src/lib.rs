@@ -7,6 +7,13 @@ use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator};
 use boundary_core::analyzer::{LanguageAnalyzer, ParsedFile};
 use boundary_core::types::*;
 
+/// Active Record method name patterns.
+/// If a struct has 2+ methods matching these names, it's treated as Active Record.
+const ACTIVE_RECORD_METHODS: &[&str] = &[
+    "Load", "Save", "Update", "Delete", "Insert", "Create", "FindByID", "FindBy", "Get", "GetAll",
+    "List", "Upsert", "Remove", "Persist", "Fetch",
+];
+
 /// Go language analyzer using tree-sitter.
 pub struct GoAnalyzer {
     language: Language,
@@ -14,6 +21,7 @@ pub struct GoAnalyzer {
     struct_query: Query,
     import_query: Query,
     method_query: Query,
+    init_query: Query,
 }
 
 impl GoAnalyzer {
@@ -74,12 +82,23 @@ impl GoAnalyzer {
         )
         .context("failed to compile method query")?;
 
+        let init_query = Query::new(
+            &language,
+            r#"
+            (function_declaration
+              name: (identifier) @func_name
+              body: (block) @body)
+            "#,
+        )
+        .context("failed to compile init query")?;
+
         Ok(Self {
             language,
             interface_query,
             struct_query,
             import_query,
             method_query,
+            init_query,
         })
     }
 }
@@ -168,6 +187,10 @@ impl LanguageAnalyzer for GoAnalyzer {
             }
         }
 
+        // Extract init() function dependencies
+        let init_deps = extract_init_dependencies(&self.init_query, parsed, &pkg);
+        deps.extend(init_deps);
+
         deps
     }
 }
@@ -255,6 +278,7 @@ fn extract_interfaces(
                 column: start_col + 1,
             },
             is_cross_cutting: false,
+            architecture_mode: ArchitectureMode::default(),
         });
     }
 }
@@ -321,6 +345,7 @@ fn extract_structs(query: &Query, parsed: &ParsedFile, pkg: &str, components: &m
                 column: start_col + 1,
             },
             is_cross_cutting: false,
+            architecture_mode: ArchitectureMode::default(),
         });
     }
 }
@@ -383,6 +408,7 @@ fn associate_methods(components: &mut [Component], methods: &HashMap<String, Vec
             match &mut component.kind {
                 ComponentKind::Entity(info) => {
                     info.methods = struct_methods.clone();
+                    info.is_active_record = is_active_record(&info.methods);
                 }
                 ComponentKind::DomainEvent(info) => {
                     // Domain events typically don't have methods, but store if found
@@ -392,6 +418,20 @@ fn associate_methods(components: &mut [Component], methods: &HashMap<String, Vec
             }
         }
     }
+}
+
+/// Check if a struct's methods indicate an Active Record pattern.
+/// Returns true if 2+ methods match known CRUD/persistence method names.
+fn is_active_record(methods: &[MethodInfo]) -> bool {
+    methods
+        .iter()
+        .filter(|m| {
+            ACTIVE_RECORD_METHODS
+                .iter()
+                .any(|ar| m.name == *ar || m.name.starts_with(ar))
+        })
+        .count()
+        >= 2
 }
 
 /// Classify a struct by its name suffix heuristic.
@@ -427,7 +467,109 @@ fn classify_struct_kind(name: &str, fields: &[FieldInfo]) -> ComponentKind {
             name: name.to_string(),
             fields: fields.to_vec(),
             methods: Vec::new(),
+            is_active_record: false,
         })
+    }
+}
+
+/// Extract dependencies from init() function bodies.
+/// Walks the body of each init() function for qualified call expressions (pkg.Function).
+fn extract_init_dependencies(query: &Query, parsed: &ParsedFile, pkg: &str) -> Vec<Dependency> {
+    let mut deps = Vec::new();
+    let mut cursor = QueryCursor::new();
+
+    let func_name_idx = query
+        .capture_names()
+        .iter()
+        .position(|n| *n == "func_name")
+        .unwrap_or(0);
+    let body_idx = query
+        .capture_names()
+        .iter()
+        .position(|n| *n == "body")
+        .unwrap_or(1);
+
+    let mut matches = cursor.matches(query, parsed.tree.root_node(), parsed.content.as_bytes());
+
+    while let Some(m) = matches.next() {
+        let mut func_name = String::new();
+        let mut body_node = None;
+
+        for capture in m.captures {
+            if capture.index as usize == func_name_idx {
+                func_name = node_text(capture.node, &parsed.content);
+            } else if capture.index as usize == body_idx {
+                body_node = Some(capture.node);
+            }
+        }
+
+        if func_name != "init" {
+            continue;
+        }
+
+        let Some(body) = body_node else {
+            continue;
+        };
+
+        let from_id = ComponentId::new(pkg, "<init>");
+
+        // Walk the body tree for call_expression nodes with selector_expression
+        let mut tree_cursor = body.walk();
+        walk_for_calls(
+            &mut tree_cursor,
+            &parsed.content,
+            &parsed.path,
+            &from_id,
+            &mut deps,
+        );
+    }
+
+    deps
+}
+
+/// Recursively walk a tree-sitter node for qualified call expressions (pkg.Function).
+fn walk_for_calls(
+    cursor: &mut tree_sitter::TreeCursor,
+    source: &str,
+    file_path: &std::path::Path,
+    from_id: &ComponentId,
+    deps: &mut Vec<Dependency>,
+) {
+    loop {
+        let node = cursor.node();
+
+        if node.kind() == "call_expression" {
+            // Check if the function is a selector_expression (pkg.Function)
+            if let Some(func_node) = node.child_by_field_name("function") {
+                if func_node.kind() == "selector_expression" {
+                    if let Some(operand) = func_node.child_by_field_name("operand") {
+                        let called_pkg = node_text(operand, source);
+                        let to_id = ComponentId::new(&called_pkg, "<package>");
+                        deps.push(Dependency {
+                            from: from_id.clone(),
+                            to: to_id,
+                            kind: DependencyKind::MethodCall,
+                            location: SourceLocation {
+                                file: file_path.to_path_buf(),
+                                line: node.start_position().row + 1,
+                                column: node.start_position().column + 1,
+                            },
+                            import_path: Some(called_pkg),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Recurse into children
+        if cursor.goto_first_child() {
+            walk_for_calls(cursor, source, file_path, from_id, deps);
+            cursor.goto_parent();
+        }
+
+        if !cursor.goto_next_sibling() {
+            break;
+        }
     }
 }
 
@@ -619,6 +761,131 @@ func (u *User) Validate() error {
         } else {
             panic!("expected Entity kind");
         }
+    }
+
+    #[test]
+    fn test_active_record_detection() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        let content = r#"
+package models
+
+type User struct {
+    ID   string
+    Name string
+}
+
+func (u *User) Save() error {
+    return nil
+}
+
+func (u *User) Delete() error {
+    return nil
+}
+
+func (u *User) FindByID(id string) (*User, error) {
+    return nil, nil
+}
+"#;
+        let path = PathBuf::from("models/user.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let entity = components.iter().find(|c| c.name == "User");
+        assert!(entity.is_some(), "should find User");
+        if let ComponentKind::Entity(ref info) = entity.unwrap().kind {
+            assert!(
+                info.is_active_record,
+                "User with Save, Delete, FindByID should be active record"
+            );
+        } else {
+            panic!("expected Entity kind");
+        }
+    }
+
+    #[test]
+    fn test_not_active_record_with_few_crud_methods() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        let content = r#"
+package domain
+
+type User struct {
+    ID   string
+    Name string
+}
+
+func (u *User) Validate() error {
+    return nil
+}
+"#;
+        let path = PathBuf::from("domain/user.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let entity = components.iter().find(|c| c.name == "User");
+        assert!(entity.is_some());
+        if let ComponentKind::Entity(ref info) = entity.unwrap().kind {
+            assert!(
+                !info.is_active_record,
+                "User with only Validate should NOT be active record"
+            );
+        }
+    }
+
+    #[test]
+    fn test_init_function_extraction() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        let content = r#"
+package main
+
+import (
+    "fmt"
+    "myapp/internal/infrastructure/postgres"
+)
+
+func init() {
+    postgres.Connect()
+    fmt.Println("initialized")
+}
+"#;
+        let path = PathBuf::from("cmd/main.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let deps = analyzer.extract_dependencies(&parsed);
+
+        // Should have import deps + init deps
+        let init_deps: Vec<_> = deps
+            .iter()
+            .filter(|d| d.from.0.contains("<init>"))
+            .collect();
+        assert!(
+            !init_deps.is_empty(),
+            "should extract dependencies from init() function"
+        );
+    }
+
+    #[test]
+    fn test_non_init_functions_not_extracted() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        let content = r#"
+package main
+
+import "myapp/internal/infrastructure/postgres"
+
+func setup() {
+    postgres.Connect()
+}
+"#;
+        let path = PathBuf::from("cmd/main.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let deps = analyzer.extract_dependencies(&parsed);
+
+        let init_deps: Vec<_> = deps
+            .iter()
+            .filter(|d| d.from.0.contains("<init>"))
+            .collect();
+        assert!(
+            init_deps.is_empty(),
+            "non-init functions should not produce init dependencies"
+        );
     }
 
     #[test]

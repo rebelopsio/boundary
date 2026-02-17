@@ -258,6 +258,7 @@ fn extract_interfaces(
                 column: start_col + 1,
             },
             is_cross_cutting: false,
+            architecture_mode: ArchitectureMode::default(),
         });
     }
 }
@@ -299,6 +300,7 @@ fn extract_type_aliases(
                         column: capture.node.start_position().column + 1,
                     },
                     is_cross_cutting: false,
+                    architecture_mode: ArchitectureMode::default(),
                 });
             }
         }
@@ -357,6 +359,7 @@ fn extract_classes(
                 column: start_col + 1,
             },
             is_cross_cutting: false,
+            architecture_mode: ArchitectureMode::default(),
         });
     }
 }
@@ -385,6 +388,7 @@ fn classify_class_kind(name: &str, implements: &[String]) -> ComponentKind {
             name: name.to_string(),
             fields: vec![],
             methods: Vec::new(),
+            is_active_record: false,
         })
     }
 }

@@ -12,6 +12,18 @@ pub fn format_report(result: &AnalysisResult, compact: bool) -> String {
     }
 }
 
+/// Format a multi-service analysis report as JSON.
+pub fn format_multi_service_report(
+    multi: &boundary_core::metrics::MultiServiceResult,
+    compact: bool,
+) -> String {
+    if compact {
+        serde_json::to_string(multi).expect("MultiServiceResult should be serializable")
+    } else {
+        serde_json::to_string_pretty(multi).expect("MultiServiceResult should be serializable")
+    }
+}
+
 /// Wrapper for check output that adds pass/fail metadata.
 #[derive(Debug, Serialize)]
 pub struct CheckOutput<'a> {

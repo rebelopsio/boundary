@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.4](https://github.com/rebelopsio/boundary/compare/v0.8.3...v0.8.4) (2026-02-18)
+
+
+### Bug Fixes
+
+* revert and use cargo dist default package naming for homebrew ([#37](https://github.com/rebelopsio/boundary/issues/37)) ([4767550](https://github.com/rebelopsio/boundary/commit/47675509718254598aa5444c9ffb35a0909bcde1))
+
 ## [0.8.3](https://github.com/rebelopsio/boundary/compare/v0.8.2...v0.8.3) (2026-02-18)
 
 

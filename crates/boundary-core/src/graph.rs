@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::metrics_report::LayerCouplingMatrix;
 use crate::types::{
-    ArchLayer, ArchitectureMode, Component, ComponentId, Dependency, DependencyKind, SourceLocation,
+    ArchLayer, ArchitectureMode, Component, ComponentId, ComponentKind, Dependency, DependencyKind,
+    SourceLocation,
 };
 
 /// Node in the dependency graph
@@ -20,6 +21,8 @@ pub struct GraphNode {
     pub architecture_mode: ArchitectureMode,
     #[serde(default)]
     pub location: SourceLocation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<ComponentKind>,
 }
 
 /// Edge in the dependency graph
@@ -56,6 +59,7 @@ impl DependencyGraph {
             is_cross_cutting: component.is_cross_cutting,
             architecture_mode: component.architecture_mode,
             location: component.location.clone(),
+            kind: Some(component.kind.clone()),
         };
         let idx = self.graph.add_node(node);
         self.index.insert(component.id.clone(), idx);
@@ -90,6 +94,7 @@ impl DependencyGraph {
             is_cross_cutting,
             architecture_mode,
             location: SourceLocation::default(),
+            kind: None,
         };
         let idx = self.graph.add_node(node);
         self.index.insert(id.clone(), idx);

@@ -401,6 +401,28 @@ mod tests {
     }
 
     #[test]
+    fn test_is_cross_cutting_globstar_patterns() {
+        let config = LayersConfig {
+            cross_cutting: vec![
+                "**/methods/**".to_string(),
+                "**/observability/**".to_string(),
+                "**/uptime/**".to_string(),
+            ],
+            ..LayersConfig::default()
+        };
+        let classifier = LayerClassifier::new(&config);
+
+        assert!(classifier.is_cross_cutting("common/modules/billing/methods/payment_method.go"));
+        assert!(classifier.is_cross_cutting("common/modules/billing/observability/metrics.go"));
+        assert!(classifier.is_cross_cutting("common/modules/billing/uptime/calc.go"));
+        assert!(!classifier.is_cross_cutting("common/modules/billing/domain/models/payment.go"));
+        // Also works with short relative paths (when analyzing a subdir)
+        assert!(classifier.is_cross_cutting("methods/payment_method.go"));
+        assert!(classifier.is_cross_cutting("observability/metrics.go"));
+        assert!(classifier.is_cross_cutting("uptime/calc.go"));
+    }
+
+    #[test]
     fn test_is_cross_cutting_no_match() {
         let config = LayersConfig {
             cross_cutting: vec!["common/utils/**".to_string()],

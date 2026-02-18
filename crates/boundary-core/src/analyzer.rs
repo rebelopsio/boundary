@@ -28,4 +28,10 @@ pub trait LanguageAnalyzer: Send + Sync {
 
     /// Extract dependencies (imports, type references, etc.) from a parsed file.
     fn extract_dependencies(&self, parsed: &ParsedFile) -> Vec<Dependency>;
+
+    /// Returns true if the given import path is a standard library import
+    /// that should be excluded from architectural analysis.
+    fn is_stdlib_import(&self, _import_path: &str) -> bool {
+        false
+    }
 }

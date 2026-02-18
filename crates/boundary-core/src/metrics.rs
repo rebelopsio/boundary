@@ -284,25 +284,50 @@ fn detect_pattern_violations(
 
     let nodes = graph.nodes();
 
-    // Collect port names for adapter-without-port check
+    // Collect port names using ComponentKind first, then fall back to name heuristics
     let port_names: Vec<String> = nodes
         .iter()
         .filter(|n| {
+            // Prefer ComponentKind::Port when available
+            if let Some(ComponentKind::Port(_)) = &n.kind {
+                return true;
+            }
             let name_lower = n.name.to_lowercase();
             name_lower.contains("port")
                 || name_lower.contains("interface")
-                || name_lower.contains("repository") && n.layer == Some(ArchLayer::Domain)
+                || (name_lower.contains("repository") && n.layer == Some(ArchLayer::Domain))
         })
         .map(|n| n.name.clone())
         .collect();
 
     // Check 1: Adapter without port
+    // Only check infrastructure-layer components that are actually adapters
     for node in &nodes {
+        if node.is_cross_cutting {
+            continue;
+        }
+
         let name_lower = node.name.to_lowercase();
-        let is_adapter = name_lower.ends_with("handler")
-            || name_lower.ends_with("controller")
-            || (node.layer == Some(ArchLayer::Infrastructure)
-                && (name_lower.contains("adapter") || name_lower.contains("impl")));
+
+        // Use ComponentKind to determine if this is an adapter.
+        // Only infrastructure-layer components are hex arch adapters — application-layer
+        // "handlers" are use cases/coordinators, not adapters.
+        let is_adapter = match &node.kind {
+            Some(ComponentKind::Adapter(_)) if node.layer == Some(ArchLayer::Infrastructure) => {
+                true
+            }
+            Some(ComponentKind::Repository) if node.layer == Some(ArchLayer::Infrastructure) => {
+                true
+            }
+            // Fall back to name heuristic only for infrastructure-layer components
+            None | Some(_) => {
+                node.layer == Some(ArchLayer::Infrastructure)
+                    && (name_lower.ends_with("handler")
+                        || name_lower.ends_with("controller")
+                        || name_lower.contains("adapter")
+                        || name_lower.contains("impl"))
+            }
+        };
 
         if !is_adapter {
             continue;
@@ -311,7 +336,10 @@ fn detect_pattern_violations(
         // Check if there's a matching port name pattern
         let has_port = port_names.iter().any(|port| {
             let port_lower = port.to_lowercase();
-            // e.g., "UserHandler" matches "UserPort" or "UserRepository"
+
+            // Common prefix patterns for infrastructure implementations:
+            // e.g., "MongoInvoiceRepository" → strip "Mongo" prefix and "Repository" suffix
+            //       to match "InvoiceRepository" port
             let adapter_base = name_lower
                 .trim_end_matches("handler")
                 .trim_end_matches("controller")
@@ -320,8 +348,27 @@ fn detect_pattern_violations(
             let port_base = port_lower
                 .trim_end_matches("port")
                 .trim_end_matches("interface")
-                .trim_end_matches("repository");
-            !adapter_base.is_empty() && !port_base.is_empty() && adapter_base == port_base
+                .trim_end_matches("repository")
+                .trim_end_matches("service");
+
+            // Direct base match (e.g., UserHandler → UserPort)
+            if !adapter_base.is_empty() && !port_base.is_empty() && adapter_base == port_base {
+                return true;
+            }
+
+            // Check if the adapter name contains the port name (e.g., MongoInvoiceRepository contains InvoiceRepository)
+            if name_lower.contains(&port_lower) {
+                return true;
+            }
+
+            // Check if the adapter name ends with the port name after stripping a vendor prefix
+            // e.g., "stripepaymentprocessor" contains port base "paymentprocessor"
+            // e.g., "mongoinvoicerepository" ends_with "invoicerepository"
+            if !port_lower.is_empty() && name_lower.ends_with(&port_lower) {
+                return true;
+            }
+
+            false
         });
 
         if !has_port {
@@ -552,28 +599,33 @@ fn calculate_dependency_direction(graph: &DependencyGraph) -> f64 {
     (correct as f64 / non_cross_cutting.len() as f64) * 100.0
 }
 
-/// Interface coverage: ratio of ports to total components (higher = better separation).
+/// Interface coverage: ratio of ports to adapters/repositories (higher = better separation).
 fn calculate_interface_coverage(graph: &DependencyGraph) -> f64 {
     let nodes = graph.nodes();
     if nodes.is_empty() {
         return 100.0;
     }
 
-    // Count nodes in domain layer (likely ports) vs infrastructure (adapters)
     let mut ports = 0u64;
     let mut adapters = 0u64;
 
     for node in &nodes {
-        // Heuristic: names containing "Port", "Interface", or in domain layer with interface-like names
-        let name_lower = node.name.to_lowercase();
-        if name_lower.contains("port")
-            || name_lower.contains("interface")
-            || (node.layer == Some(ArchLayer::Domain) && name_lower.ends_with("er"))
-        {
-            ports += 1;
+        if node.is_cross_cutting {
+            continue;
         }
-        if node.layer == Some(ArchLayer::Infrastructure) {
-            adapters += 1;
+        if let Some(kind) = &node.kind {
+            if matches!(kind, ComponentKind::Port(_)) {
+                ports += 1;
+            }
+            // Count adapters and repositories in the infrastructure layer
+            if node.layer == Some(ArchLayer::Infrastructure)
+                && matches!(
+                    kind,
+                    ComponentKind::Adapter(_) | ComponentKind::Repository | ComponentKind::Service
+                )
+            {
+                adapters += 1;
+            }
         }
     }
 

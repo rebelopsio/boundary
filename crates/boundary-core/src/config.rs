@@ -240,23 +240,31 @@ impl Config {
         Ok(config)
     }
 
-    /// Load from `.boundary.toml` in the given directory, or return defaults.
+    /// Load from `.boundary.toml` in the given directory or any ancestor, or return defaults.
     pub fn load_or_default(dir: &Path) -> Self {
-        let config_path = dir.join(".boundary.toml");
-        if config_path.exists() {
-            match Self::load(&config_path) {
-                Ok(config) => config,
-                Err(e) => {
-                    eprintln!(
-                        "Warning: failed to load config from '{}': {e:#}. Using defaults.",
-                        config_path.display()
-                    );
-                    Self::default()
-                }
+        // Walk up from dir to find .boundary.toml (similar to how git finds .git)
+        let start = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+        let mut current = start.as_path();
+        loop {
+            let config_path = current.join(".boundary.toml");
+            if config_path.exists() {
+                return match Self::load(&config_path) {
+                    Ok(config) => config,
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: failed to load config from '{}': {e:#}. Using defaults.",
+                            config_path.display()
+                        );
+                        Self::default()
+                    }
+                };
             }
-        } else {
-            Self::default()
+            match current.parent() {
+                Some(parent) => current = parent,
+                None => break,
+            }
         }
+        Self::default()
     }
 
     /// Generate default TOML content for `boundary init`.

@@ -144,6 +144,13 @@ impl LanguageAnalyzer for GoAnalyzer {
         components
     }
 
+    fn is_stdlib_import(&self, import_path: &str) -> bool {
+        // Go stdlib imports never contain a dot (no domain name).
+        // e.g., "fmt", "context", "encoding/json", "crypto/rand"
+        // Third-party: "github.com/...", "golang.org/x/..."
+        !import_path.contains('.')
+    }
+
     fn extract_dependencies(&self, parsed: &ParsedFile) -> Vec<Dependency> {
         let mut deps = Vec::new();
         let pkg = derive_package_path(&parsed.path);

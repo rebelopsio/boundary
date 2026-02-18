@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/rebelopsio/boundary/compare/v0.8.1...v0.8.2) (2026-02-18)
+
+
+### Bug Fixes
+
+* crate versioning for publishing ([#33](https://github.com/rebelopsio/boundary/issues/33)) ([06c6baa](https://github.com/rebelopsio/boundary/commit/06c6baa99919ef4d194ad5656e22cd88afe187e2))
+
 ## [0.8.1](https://github.com/rebelopsio/boundary/compare/v0.8.0...v0.8.1) (2026-02-18)
 
 

@@ -6,8 +6,7 @@ use crate::config::Config;
 use crate::graph::DependencyGraph;
 use crate::metrics_report::{ClassificationCoverage, DependencyDepthMetrics, MetricsReport};
 use crate::types::{
-    ArchLayer, ArchitectureMode, Component, ComponentKind, Severity, SourceLocation, Violation,
-    ViolationKind,
+    ArchLayer, ArchitectureMode, Component, ComponentKind, Severity, Violation, ViolationKind,
 };
 
 /// Result for a single service in a multi-service analysis.
@@ -228,22 +227,25 @@ fn detect_circular_dependencies(
         .copied()
         .unwrap_or(Severity::Error);
 
+    let all_nodes = graph.nodes();
     for cycle in graph.find_cycles() {
         let cycle_str = cycle
             .iter()
             .map(|c| c.0.as_str())
             .collect::<Vec<_>>()
             .join(" -> ");
+        // Use the location of the first component in the cycle
+        let location = cycle
+            .first()
+            .and_then(|id| all_nodes.iter().find(|n| &n.id == id))
+            .map(|n| n.location.clone())
+            .unwrap_or_default();
         violations.push(Violation {
             kind: ViolationKind::CircularDependency {
                 cycle: cycle.clone(),
             },
             severity,
-            location: SourceLocation {
-                file: std::path::PathBuf::from("<cycle>"),
-                line: 0,
-                column: 0,
-            },
+            location,
             message: format!("Circular dependency detected: {cycle_str}"),
             suggestion: Some(
                 "Break the cycle by introducing an interface or reorganizing dependencies."
@@ -328,11 +330,7 @@ fn detect_pattern_violations(
                     adapter_name: node.name.clone(),
                 },
                 severity,
-                location: SourceLocation {
-                    file: std::path::PathBuf::from("<pattern>"),
-                    line: 0,
-                    column: 0,
-                },
+                location: node.location.clone(),
                 message: format!(
                     "Adapter '{}' has no matching port interface",
                     node.name

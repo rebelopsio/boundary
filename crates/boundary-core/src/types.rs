@@ -30,7 +30,7 @@ impl fmt::Display for ComponentId {
 }
 
 /// Location in source code
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SourceLocation {
     pub file: PathBuf,
     pub line: usize,

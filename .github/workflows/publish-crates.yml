@@ -1,0 +1,46 @@
+name: Publish to crates.io
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+jobs:
+  publish-crates:
+    runs-on: ubuntu-latest
+    env:
+      PLAN: ${{ inputs.plan }}
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish crates (dependency order)
+        run: |
+          # Publish crates in dependency order, waiting for crates.io index updates
+          crates=(
+            boundary-core
+            boundary-go
+            boundary-rust
+            boundary-typescript
+            boundary-java
+            boundary-report
+            boundary-lsp
+            boundary
+          )
+
+          for crate in "${crates[@]}"; do
+            echo "Publishing $crate..."
+            cargo publish -p "$crate" --no-verify
+            if [ "$crate" != "boundary" ]; then
+              echo "Waiting for crates.io index to update..."
+              sleep 30
+            fi
+          done

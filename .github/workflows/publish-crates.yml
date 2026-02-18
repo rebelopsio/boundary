@@ -38,7 +38,17 @@ jobs:
 
           for crate in "${crates[@]}"; do
             echo "Publishing $crate..."
-            cargo publish -p "$crate" --no-verify
+            output=$(cargo publish -p "$crate" --no-verify 2>&1) && {
+              echo "$crate published successfully"
+            } || {
+              if echo "$output" | grep -q "already exists"; then
+                echo "$crate already published, skipping"
+              else
+                echo "$output"
+                echo "Failed to publish $crate"
+                exit 1
+              fi
+            }
             if [ "$crate" != "boundary" ]; then
               echo "Waiting for crates.io index to update..."
               sleep 30

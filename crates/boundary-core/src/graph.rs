@@ -18,6 +18,8 @@ pub struct GraphNode {
     pub is_cross_cutting: bool,
     #[serde(default)]
     pub architecture_mode: ArchitectureMode,
+    #[serde(default)]
+    pub location: SourceLocation,
 }
 
 /// Edge in the dependency graph
@@ -53,6 +55,7 @@ impl DependencyGraph {
             layer: component.layer,
             is_cross_cutting: component.is_cross_cutting,
             architecture_mode: component.architecture_mode,
+            location: component.location.clone(),
         };
         let idx = self.graph.add_node(node);
         self.index.insert(component.id.clone(), idx);
@@ -86,6 +89,7 @@ impl DependencyGraph {
             layer,
             is_cross_cutting,
             architecture_mode,
+            location: SourceLocation::default(),
         };
         let idx = self.graph.add_node(node);
         self.index.insert(id.clone(), idx);

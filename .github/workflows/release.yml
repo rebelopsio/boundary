@@ -268,26 +268,10 @@ jobs:
           pattern: artifacts-*
           path: artifacts
           merge-multiple: true
-      - name: Cleanup and rename artifacts
+      - name: Cleanup artifacts
         run: |
           # Remove the granular manifests
           rm -f artifacts/*-dist-manifest.json
-
-          # Rename target triples to friendly platform names
-          cd artifacts
-          for f in *; do
-            new="$f"
-            new="${new//aarch64-apple-darwin/macos-arm64}"
-            new="${new//x86_64-apple-darwin/macos-x64}"
-            new="${new//aarch64-unknown-linux-gnu/linux-arm64}"
-            new="${new//x86_64-unknown-linux-gnu/linux-x64}"
-            new="${new//x86_64-pc-windows-msvc/windows-x64}"
-            if [ "$new" != "$f" ]; then
-              mv "$f" "$new"
-              echo "Renamed: $f -> $new"
-            fi
-          done
-          cd ..
       - name: Upload to GitHub Release
         env:
           TAG: "${{ needs.plan.outputs.tag }}"

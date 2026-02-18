@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/rebelopsio/boundary/compare/v0.8.0...v0.8.1) (2026-02-18)
+
+
+### Bug Fixes
+
+* diagnostics bug ([#31](https://github.com/rebelopsio/boundary/issues/31)) ([83a365a](https://github.com/rebelopsio/boundary/commit/83a365a9668de55de5501ef4fc253256f3fca26f))
+
 ## [0.8.0](https://github.com/rebelopsio/boundary/compare/v0.7.0...v0.8.0) (2026-02-17)
 
 

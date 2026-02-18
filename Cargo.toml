@@ -59,14 +59,14 @@ chrono = { version = "0.4", features = ["serde"] }
 # Testing
 tempfile = "3.14"
 
-# Internal workspace crates
-boundary-core = { path = "crates/boundary-core" }
-boundary-go = { path = "crates/boundary-go" }
-boundary-rust = { path = "crates/boundary-rust" }
-boundary-typescript = { path = "crates/boundary-typescript" }
-boundary-java = { path = "crates/boundary-java" }
-boundary-report = { path = "crates/boundary-report" }
-boundary-lsp = { path = "crates/boundary-lsp" }
+# Internal workspace crates (version required for crates.io publishing)
+boundary-core = { path = "crates/boundary-core", version = "0.8.1" }
+boundary-go = { path = "crates/boundary-go", version = "0.8.1" }
+boundary-rust = { path = "crates/boundary-rust", version = "0.8.1" }
+boundary-typescript = { path = "crates/boundary-typescript", version = "0.8.1" }
+boundary-java = { path = "crates/boundary-java", version = "0.8.1" }
+boundary-report = { path = "crates/boundary-report", version = "0.8.1" }
+boundary-lsp = { path = "crates/boundary-lsp", version = "0.8.1" }
 
 [profile.release]
 lto = true

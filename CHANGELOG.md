@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.3](https://github.com/rebelopsio/boundary/compare/v0.8.2...v0.8.3) (2026-02-18)
+
+
+### Bug Fixes
+
+* crate publishing idempotency ([#35](https://github.com/rebelopsio/boundary/issues/35)) ([3cddfa9](https://github.com/rebelopsio/boundary/commit/3cddfa9b60e9712f863c07ecddb7ae8ede622fbd))
+
 ## [0.8.2](https://github.com/rebelopsio/boundary/compare/v0.8.1...v0.8.2) (2026-02-18)
 
 

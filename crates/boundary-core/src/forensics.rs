@@ -377,8 +377,11 @@ fn generate_improvements(
 ) -> Vec<String> {
     let mut suggestions = Vec::new();
 
-    // Anemic domain models
+    // Anemic domain models — only flag domain-layer entities, not infrastructure DTOs
     for entity in entities {
+        if entity.layer != Some(ArchLayer::Domain) {
+            continue;
+        }
         if let ComponentKind::Entity(ref info) = entity.kind {
             if info.methods.is_empty() {
                 suggestions.push(format!(

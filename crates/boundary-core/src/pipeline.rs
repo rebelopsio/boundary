@@ -29,6 +29,7 @@ type ClassifiedDependency = (
     Option<ArchLayer>,
     bool,
     ArchitectureMode,
+    bool, // to_is_cross_cutting
 );
 
 /// Extracted per-file data before merging into the graph.
@@ -149,13 +150,30 @@ impl AnalysisPipeline {
                     let deps = analyzer.extract_dependencies(&parsed);
                     let dependencies: Vec<_> = deps
                         .into_iter()
+                        .filter(|dep| {
+                            // Skip standard library imports — they are not architectural dependencies
+                            !dep.import_path
+                                .as_deref()
+                                .is_some_and(|p| analyzer.is_stdlib_import(p))
+                        })
                         .map(|dep| {
                             let to_layer = dep
                                 .import_path
                                 .as_deref()
                                 .and_then(|p| classifier.classify_import(p));
+                            let to_is_cross_cutting = dep
+                                .import_path
+                                .as_deref()
+                                .is_some_and(|p| classifier.is_cross_cutting(p));
                             let from_layer = classifier.classify(&rel_path);
-                            (dep, from_layer, to_layer, is_cross_cutting, arch_mode)
+                            (
+                                dep,
+                                from_layer,
+                                to_layer,
+                                is_cross_cutting,
+                                arch_mode,
+                                to_is_cross_cutting,
+                            )
                         })
                         .collect();
 
@@ -166,14 +184,24 @@ impl AnalysisPipeline {
                 })
                 .collect();
 
-            for fr in file_results {
+            // First pass: add all source file components
+            for fr in &file_results {
                 for (comp, _) in &fr.components {
                     graph.add_component(comp);
                     all_components.push(comp.clone());
                 }
-                for (dep, from_layer, to_layer, is_cc, arch_mode) in &fr.dependencies {
+            }
+
+            // Collect known source component IDs for external dependency detection
+            let source_ids: std::collections::HashSet<_> =
+                all_components.iter().map(|c| &c.id).collect();
+
+            // Second pass: add dependencies, marking external targets as cross-cutting
+            for fr in file_results {
+                for (dep, from_layer, to_layer, is_cc, arch_mode, to_is_cc) in &fr.dependencies {
                     graph.ensure_node_with_mode(&dep.from, *from_layer, *is_cc, *arch_mode);
-                    graph.ensure_node(&dep.to, *to_layer, false);
+                    let target_is_external = !source_ids.contains(&dep.to);
+                    graph.ensure_node(&dep.to, *to_layer, *to_is_cc || target_is_external);
                     graph.add_dependency(dep);
                     all_dependencies.push(dep.clone());
                 }
@@ -272,11 +300,20 @@ impl AnalysisPipeline {
                             let dependencies: Vec<_> = cached
                                 .dependencies
                                 .iter()
+                                .filter(|dep| {
+                                    !dep.import_path
+                                        .as_deref()
+                                        .is_some_and(|p| analyzer.is_stdlib_import(p))
+                                })
                                 .map(|dep| {
                                     let to_layer = dep
                                         .import_path
                                         .as_deref()
                                         .and_then(|p| classifier.classify_import(p));
+                                    let to_is_cross_cutting = dep
+                                        .import_path
+                                        .as_deref()
+                                        .is_some_and(|p| classifier.is_cross_cutting(p));
                                     let from_layer = classifier.classify(&rel_path);
                                     (
                                         dep.clone(),
@@ -284,6 +321,7 @@ impl AnalysisPipeline {
                                         to_layer,
                                         is_cross_cutting,
                                         arch_mode,
+                                        to_is_cross_cutting,
                                     )
                                 })
                                 .collect();
@@ -326,13 +364,29 @@ impl AnalysisPipeline {
                     let deps = analyzer.extract_dependencies(&parsed);
                     let dependencies: Vec<_> = deps
                         .into_iter()
+                        .filter(|dep| {
+                            !dep.import_path
+                                .as_deref()
+                                .is_some_and(|p| analyzer.is_stdlib_import(p))
+                        })
                         .map(|dep| {
                             let to_layer = dep
                                 .import_path
                                 .as_deref()
                                 .and_then(|p| classifier.classify_import(p));
+                            let to_is_cross_cutting = dep
+                                .import_path
+                                .as_deref()
+                                .is_some_and(|p| classifier.is_cross_cutting(p));
                             let from_layer = classifier.classify(&rel_path);
-                            (dep, from_layer, to_layer, is_cross_cutting, arch_mode)
+                            (
+                                dep,
+                                from_layer,
+                                to_layer,
+                                is_cross_cutting,
+                                arch_mode,
+                                to_is_cross_cutting,
+                            )
                         })
                         .collect();
 
@@ -350,18 +404,19 @@ impl AnalysisPipeline {
             let current_files: Vec<String> =
                 file_results.iter().map(|(p, _, _)| p.clone()).collect();
 
-            for (rel_path, fr, content) in file_results {
+            // First pass: add all source file components and update cache
+            for (rel_path, fr, content) in &file_results {
                 if incremental {
                     let cached_components: Vec<_> =
                         fr.components.iter().map(|(comp, _)| comp.clone()).collect();
                     let cached_deps: Vec<_> = fr
                         .dependencies
                         .iter()
-                        .map(|(dep, _, _, _, _)| dep.clone())
+                        .map(|(dep, _, _, _, _, _)| dep.clone())
                         .collect();
                     cache.insert(
-                        rel_path,
-                        &content,
+                        rel_path.clone(),
+                        content,
                         CachedFileResult {
                             hash: String::new(),
                             components: cached_components,
@@ -374,9 +429,18 @@ impl AnalysisPipeline {
                     graph.add_component(comp);
                     all_components.push(comp.clone());
                 }
-                for (dep, from_layer, to_layer, is_cc, arch_mode) in &fr.dependencies {
+            }
+
+            // Collect known source component IDs for external dependency detection
+            let source_ids: std::collections::HashSet<_> =
+                all_components.iter().map(|c| &c.id).collect();
+
+            // Second pass: add dependencies, marking external targets as cross-cutting
+            for (_rel_path, fr, _content) in file_results {
+                for (dep, from_layer, to_layer, is_cc, arch_mode, to_is_cc) in &fr.dependencies {
                     graph.ensure_node_with_mode(&dep.from, *from_layer, *is_cc, *arch_mode);
-                    graph.ensure_node(&dep.to, *to_layer, false);
+                    let target_is_external = !source_ids.contains(&dep.to);
+                    graph.ensure_node(&dep.to, *to_layer, *to_is_cc || target_is_external);
                     graph.add_dependency(dep);
                     all_dependencies.push(dep.clone());
                 }

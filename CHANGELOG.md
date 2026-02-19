@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/rebelopsio/boundary/compare/v0.8.5...v0.9.0) (2026-02-19)
+
+
+### Features
+
+* add scoreonly flag ([#42](https://github.com/rebelopsio/boundary/issues/42)) ([57d7118](https://github.com/rebelopsio/boundary/commit/57d71187b5e4af76b9016672f7cd3cb285d97eca))
+
 ## [0.8.5](https://github.com/rebelopsio/boundary/compare/v0.8.4...v0.8.5) (2026-02-18)
 
 

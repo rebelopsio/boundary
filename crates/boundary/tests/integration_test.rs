@@ -406,6 +406,161 @@ fn test_check_rust_violations() {
     );
 }
 
+// ==================== Score regression tests ====================
+
+/// Parse --score-only --format=json output into (overall, layer, deps, interfaces).
+fn parse_score_json(stdout: &str) -> (f64, f64, f64, f64) {
+    let parsed: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("score-only JSON should be valid");
+    (
+        parsed["overall"].as_f64().unwrap(),
+        parsed["layer_isolation"].as_f64().unwrap(),
+        parsed["dependency_direction"].as_f64().unwrap(),
+        parsed["interface_coverage"].as_f64().unwrap(),
+    )
+}
+
+fn assert_score_near(actual: f64, expected: f64, tolerance: f64, label: &str) {
+    assert!(
+        (actual - expected).abs() <= tolerance,
+        "{label}: expected ~{expected} (±{tolerance}), got {actual}"
+    );
+}
+
+#[test]
+fn test_score_go_fixture() {
+    let output = boundary_cmd()
+        .args([
+            "analyze",
+            &fixture_path(),
+            "--score-only",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("failed to run boundary");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "analyze failed: {stdout}");
+
+    let (overall, layer, deps, iface) = parse_score_json(&stdout);
+
+    // Go fixture has a domain->infra violation, so scores should be imperfect
+    assert_score_near(overall, 73.3, 5.0, "go overall");
+    assert_score_near(layer, 66.7, 5.0, "go layer_isolation");
+    assert_score_near(deps, 66.7, 5.0, "go dependency_direction");
+    assert_score_near(iface, 100.0, 1.0, "go interface_coverage");
+}
+
+#[test]
+fn test_score_ts_fixture() {
+    let output = boundary_cmd()
+        .args([
+            "analyze",
+            &ts_fixture_path(),
+            "--score-only",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("failed to run boundary");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "analyze failed: {stdout}");
+
+    let (overall, layer, deps, iface) = parse_score_json(&stdout);
+
+    assert_score_near(overall, 84.0, 5.0, "ts overall");
+    assert_score_near(layer, 80.0, 5.0, "ts layer_isolation");
+    assert_score_near(deps, 80.0, 5.0, "ts dependency_direction");
+    assert_score_near(iface, 100.0, 1.0, "ts interface_coverage");
+}
+
+#[test]
+fn test_score_java_fixture() {
+    let output = boundary_cmd()
+        .args([
+            "analyze",
+            &java_fixture_path(),
+            "--score-only",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("failed to run boundary");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "analyze failed: {stdout}");
+
+    let (overall, layer, deps, iface) = parse_score_json(&stdout);
+
+    // Java fixture has violations and unclassified components
+    assert_score_near(overall, 20.0, 5.0, "java overall");
+    assert!(
+        layer <= 10.0,
+        "java layer_isolation should be low, got {layer}"
+    );
+    assert!(
+        deps <= 10.0,
+        "java dependency_direction should be low, got {deps}"
+    );
+    assert_score_near(iface, 100.0, 1.0, "java interface_coverage");
+}
+
+#[test]
+fn test_score_rust_fixture() {
+    let output = boundary_cmd()
+        .args([
+            "analyze",
+            &rust_fixture_path(),
+            "--score-only",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("failed to run boundary");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "analyze failed: {stdout}");
+
+    let (overall, layer, deps, iface) = parse_score_json(&stdout);
+
+    // Rust fixture has domain->infra violation
+    assert_score_near(overall, 20.0, 5.0, "rust overall");
+    assert!(
+        layer <= 10.0,
+        "rust layer_isolation should be low, got {layer}"
+    );
+    assert!(
+        deps <= 10.0,
+        "rust dependency_direction should be low, got {deps}"
+    );
+    assert_score_near(iface, 100.0, 1.0, "rust interface_coverage");
+}
+
+#[test]
+fn test_score_not_all_100() {
+    // Regression test: ensure fixtures with violations don't score a perfect 100.
+    // This catches the PR#39 bug where external deps were auto-marked cross-cutting.
+    for (name, path) in [
+        ("go", fixture_path()),
+        ("ts", ts_fixture_path()),
+        ("java", java_fixture_path()),
+        ("rust", rust_fixture_path()),
+    ] {
+        let output = boundary_cmd()
+            .args(["analyze", &path, "--score-only", "--format", "json"])
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let (overall, _, _, _) = parse_score_json(&stdout);
+        assert!(
+            overall < 100.0,
+            "{name} fixture should NOT score 100.0 (has known violations), got {overall}"
+        );
+    }
+}
+
 // ==================== Cross-language and output format tests ====================
 
 #[test]

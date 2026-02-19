@@ -60,6 +60,9 @@ enum Commands {
         /// Analyze each service independently (monorepo support)
         #[arg(long)]
         per_service: bool,
+        /// Output only the architecture score (one line)
+        #[arg(long)]
+        score_only: bool,
     },
     /// Analyze and exit with code 0 (pass) or 1 (fail)
     Check {
@@ -152,6 +155,7 @@ fn main() {
             languages,
             incremental,
             per_service,
+            score_only,
         } => cmd_analyze(
             &path,
             config.as_deref(),
@@ -160,6 +164,7 @@ fn main() {
             languages.as_deref(),
             incremental,
             per_service,
+            score_only,
         ),
         Commands::Check {
             path,
@@ -222,6 +227,7 @@ fn validate_path(path: &Path) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cmd_analyze(
     path: &Path,
     config_path: Option<&Path>,
@@ -230,6 +236,7 @@ fn cmd_analyze(
     languages: Option<&[String]>,
     incremental: bool,
     per_service: bool,
+    score_only: bool,
 ) -> Result<()> {
     validate_path(path)?;
     let config = load_config(path, config_path)?;
@@ -238,6 +245,13 @@ fn cmd_analyze(
         let analyzers = create_analyzers(path, &config, languages)?;
         let pipeline = AnalysisPipeline::new(analyzers, config);
         let multi = pipeline.analyze_per_service(path)?;
+
+        if score_only {
+            for svc in &multi.services {
+                print_score_only(&svc.service_name, &svc.result.score, format);
+            }
+            return Ok(());
+        }
 
         let report = match format {
             OutputFormat::Text => text::format_multi_service_report(&multi),
@@ -252,6 +266,15 @@ fn cmd_analyze(
 
     let analysis = run_analysis(path, &config, languages, incremental)?;
 
+    if score_only {
+        let module_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string_lossy().into_owned());
+        print_score_only(&module_name, &analysis.result.score, format);
+        return Ok(());
+    }
+
     let report = match format {
         OutputFormat::Text => text::format_report(&analysis.result),
         OutputFormat::Json => json::format_report(&analysis.result, compact),
@@ -259,6 +282,27 @@ fn cmd_analyze(
     };
     println!("{report}");
     Ok(())
+}
+
+fn print_score_only(module: &str, score: &metrics::ArchitectureScore, format: OutputFormat) {
+    match format {
+        OutputFormat::Json => {
+            println!(
+                "{{\"module\":\"{}\",\"overall\":{},\"layer_isolation\":{},\"dependency_direction\":{},\"interface_coverage\":{}}}",
+                module, score.overall, score.layer_isolation, score.dependency_direction, score.interface_coverage
+            );
+        }
+        OutputFormat::Text | OutputFormat::Markdown => {
+            println!(
+                "{}: {}/100 (Layer: {}, Deps: {}, Interfaces: {})",
+                module,
+                score.overall,
+                score.layer_isolation,
+                score.dependency_direction,
+                score.interface_coverage
+            );
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

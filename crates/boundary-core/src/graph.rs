@@ -23,6 +23,8 @@ pub struct GraphNode {
     pub location: SourceLocation,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<ComponentKind>,
+    #[serde(default)]
+    pub is_external: bool,
 }
 
 /// Edge in the dependency graph
@@ -60,6 +62,7 @@ impl DependencyGraph {
             architecture_mode: component.architecture_mode,
             location: component.location.clone(),
             kind: Some(component.kind.clone()),
+            is_external: false,
         };
         let idx = self.graph.add_node(node);
         self.index.insert(component.id.clone(), idx);
@@ -95,6 +98,7 @@ impl DependencyGraph {
             architecture_mode,
             location: SourceLocation::default(),
             kind: None,
+            is_external: false,
         };
         let idx = self.graph.add_node(node);
         self.index.insert(id.clone(), idx);
@@ -144,10 +148,20 @@ impl DependencyGraph {
         self.graph.node_weights().collect()
     }
 
-    /// Count nodes grouped by layer.
+    /// Mark a node as external (not from analyzed source files).
+    pub fn mark_external(&mut self, id: &ComponentId) {
+        if let Some(&idx) = self.index.get(id) {
+            self.graph[idx].is_external = true;
+        }
+    }
+
+    /// Count nodes grouped by layer, skipping external nodes.
     pub fn nodes_by_layer(&self) -> HashMap<String, usize> {
         let mut counts: HashMap<String, usize> = HashMap::new();
         for node in self.graph.node_weights() {
+            if node.is_external {
+                continue;
+            }
             if node.is_cross_cutting {
                 *counts.entry("cross_cutting".to_string()).or_insert(0) += 1;
             } else {

@@ -159,6 +159,7 @@ mod tests {
         AnalysisResult {
             score: ArchitectureScore {
                 overall: score,
+                structural_presence: 100.0,
                 layer_isolation: score,
                 dependency_direction: score,
                 interface_coverage: score,

@@ -408,12 +408,13 @@ fn test_check_rust_violations() {
 
 // ==================== Score regression tests ====================
 
-/// Parse --score-only --format=json output into (overall, layer, deps, interfaces).
-fn parse_score_json(stdout: &str) -> (f64, f64, f64, f64) {
+/// Parse --score-only --format=json output into (overall, presence, layer, deps, interfaces).
+fn parse_score_json(stdout: &str) -> (f64, f64, f64, f64, f64) {
     let parsed: serde_json::Value =
         serde_json::from_str(stdout.trim()).expect("score-only JSON should be valid");
     (
         parsed["overall"].as_f64().unwrap(),
+        parsed["structural_presence"].as_f64().unwrap(),
         parsed["layer_isolation"].as_f64().unwrap(),
         parsed["dependency_direction"].as_f64().unwrap(),
         parsed["interface_coverage"].as_f64().unwrap(),
@@ -443,7 +444,7 @@ fn test_score_go_fixture() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "analyze failed: {stdout}");
 
-    let (overall, layer, deps, iface) = parse_score_json(&stdout);
+    let (overall, _presence, layer, deps, iface) = parse_score_json(&stdout);
 
     // Go fixture has a domain->infra violation, so scores should be imperfect
     assert_score_near(overall, 73.3, 5.0, "go overall");
@@ -468,7 +469,7 @@ fn test_score_ts_fixture() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "analyze failed: {stdout}");
 
-    let (overall, layer, deps, iface) = parse_score_json(&stdout);
+    let (overall, _presence, layer, deps, iface) = parse_score_json(&stdout);
 
     assert_score_near(overall, 84.0, 5.0, "ts overall");
     assert_score_near(layer, 80.0, 5.0, "ts layer_isolation");
@@ -492,10 +493,11 @@ fn test_score_java_fixture() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "analyze failed: {stdout}");
 
-    let (overall, layer, deps, iface) = parse_score_json(&stdout);
+    let (overall, _presence, layer, deps, iface) = parse_score_json(&stdout);
 
-    // Java fixture has violations and unclassified components
-    assert_score_near(overall, 20.0, 5.0, "java overall");
+    // Java fixture has violations and unclassified components;
+    // structural presence gate reduces the overall score further
+    assert_score_near(overall, 14.5, 5.0, "java overall");
     assert!(
         layer <= 10.0,
         "java layer_isolation should be low, got {layer}"
@@ -523,7 +525,7 @@ fn test_score_rust_fixture() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "analyze failed: {stdout}");
 
-    let (overall, layer, deps, iface) = parse_score_json(&stdout);
+    let (overall, _presence, layer, deps, iface) = parse_score_json(&stdout);
 
     // Rust fixture has domain->infra violation
     assert_score_near(overall, 20.0, 5.0, "rust overall");
@@ -553,7 +555,7 @@ fn test_score_not_all_100() {
             .output()
             .unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let (overall, _, _, _) = parse_score_json(&stdout);
+        let (overall, _, _, _, _) = parse_score_json(&stdout);
         assert!(
             overall < 100.0,
             "{name} fixture should NOT score 100.0 (has known violations), got {overall}"

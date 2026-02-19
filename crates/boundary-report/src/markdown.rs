@@ -16,6 +16,10 @@ pub fn format_report(result: &AnalysisResult) -> String {
         result.score.overall
     ));
     out.push_str(&format!(
+        "| Structural Presence | {:.1}/100 |\n",
+        result.score.structural_presence
+    ));
+    out.push_str(&format!(
         "| Layer Isolation | {:.1}/100 |\n",
         result.score.layer_isolation
     ));
@@ -172,6 +176,10 @@ pub fn format_multi_service_report(multi: &boundary_core::metrics::MultiServiceR
         multi.aggregate.score.overall
     ));
     out.push_str(&format!(
+        "| Structural Presence | {:.1}/100 |\n",
+        multi.aggregate.score.structural_presence
+    ));
+    out.push_str(&format!(
         "| Layer Isolation | {:.1}/100 |\n",
         multi.aggregate.score.layer_isolation
     ));
@@ -269,6 +277,7 @@ mod tests {
         let result = AnalysisResult {
             score: ArchitectureScore {
                 overall: 85.0,
+                structural_presence: 100.0,
                 layer_isolation: 90.0,
                 dependency_direction: 80.0,
                 interface_coverage: 85.0,
@@ -288,6 +297,7 @@ mod tests {
         let result = AnalysisResult {
             score: ArchitectureScore {
                 overall: 100.0,
+                structural_presence: 100.0,
                 layer_isolation: 100.0,
                 dependency_direction: 100.0,
                 interface_coverage: 100.0,

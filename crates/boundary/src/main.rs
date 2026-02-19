@@ -288,15 +288,16 @@ fn print_score_only(module: &str, score: &metrics::ArchitectureScore, format: Ou
     match format {
         OutputFormat::Json => {
             println!(
-                "{{\"module\":\"{}\",\"overall\":{:.1},\"layer_isolation\":{:.1},\"dependency_direction\":{:.1},\"interface_coverage\":{:.1}}}",
-                module, score.overall, score.layer_isolation, score.dependency_direction, score.interface_coverage
+                "{{\"module\":\"{}\",\"overall\":{:.1},\"structural_presence\":{:.1},\"layer_isolation\":{:.1},\"dependency_direction\":{:.1},\"interface_coverage\":{:.1}}}",
+                module, score.overall, score.structural_presence, score.layer_isolation, score.dependency_direction, score.interface_coverage
             );
         }
         OutputFormat::Text | OutputFormat::Markdown => {
             println!(
-                "{}: {:.1}/100 (Layer: {:.1}, Deps: {:.1}, Interfaces: {:.1})",
+                "{}: {:.1}/100 (Presence: {:.1}, Layer: {:.1}, Deps: {:.1}, Interfaces: {:.1})",
                 module,
                 score.overall,
+                score.structural_presence,
                 score.layer_isolation,
                 score.dependency_direction,
                 score.interface_coverage
@@ -701,7 +702,7 @@ fn run_analysis(
                                 let to_is_cross_cutting = dep
                                     .import_path
                                     .as_deref()
-                                    .is_some_and(|p| classifier.is_cross_cutting(p));
+                                    .is_some_and(|p| classifier.is_cross_cutting_import(p));
                                 let from_layer = classifier.classify(&rel_path);
                                 (
                                     dep.clone(),
@@ -767,7 +768,7 @@ fn run_analysis(
                         let to_is_cross_cutting = dep
                             .import_path
                             .as_deref()
-                            .is_some_and(|p| classifier.is_cross_cutting(p));
+                            .is_some_and(|p| classifier.is_cross_cutting_import(p));
                         let from_layer = classifier.classify(&rel_path);
                         (
                             dep,
@@ -842,6 +843,77 @@ fn run_analysis(
         if let Err(e) = cache.save(project_path) {
             eprintln!("Warning: failed to save analysis cache: {e}");
         }
+    }
+
+    // Mark dependency-only nodes as external if they don't correspond to any
+    // analyzed source file. Source components (added via add_component) have
+    // kind: Some(...); dependency-target nodes (via ensure_node) have kind: None.
+    // Among kind:None nodes, check if the import path matches any source directory.
+    let source_ids: std::collections::HashSet<_> = all_components.iter().map(|c| &c.id).collect();
+    let source_rel_dirs: std::collections::HashSet<String> = all_components
+        .iter()
+        .filter_map(|c| {
+            let rel = c
+                .location
+                .file
+                .strip_prefix(project_path)
+                .unwrap_or(&c.location.file);
+            rel.parent().map(|p| p.to_string_lossy().replace('\\', "/"))
+        })
+        .collect();
+    let project_path_str = project_path.to_string_lossy().replace('\\', "/");
+    let external_ids: Vec<_> = graph
+        .nodes()
+        .iter()
+        .filter(|n| {
+            if source_ids.contains(&n.id) {
+                return false;
+            }
+            // Extract the path portion before "::" (component IDs use path::name format)
+            let id = n.id.0.replace('\\', "/");
+            let path_part = id.split("::").next().unwrap_or(&id);
+            // Relative imports (starting with . or ..) are always internal
+            if path_part.starts_with('.') {
+                return false;
+            }
+            // Rust crate-internal imports
+            if path_part.starts_with("crate") {
+                return false;
+            }
+            // Absolute paths under the project directory are internal
+            if path_part.starts_with(project_path_str.as_str()) {
+                return false;
+            }
+            // Also normalize dots to slashes for Java-style package names
+            let path_normalized = path_part.replace('.', "/");
+            // Check if this path corresponds to any analyzed source directory
+            let is_internal = source_rel_dirs.iter().any(|dir| {
+                if dir.is_empty() {
+                    return false;
+                }
+                // Direct suffix match (Go-style fully-qualified imports)
+                if path_part.ends_with(dir.as_str()) {
+                    return true;
+                }
+                // Check if import path and source dir share consecutive path segments
+                // (catches Java dot-notation imports like com.example.domain.user)
+                let dir_segments: Vec<&str> = dir.split('/').collect();
+                if dir_segments.len() >= 2 {
+                    for window in dir_segments.windows(2) {
+                        let pair = format!("{}/{}", window[0], window[1]);
+                        if path_normalized.contains(&pair) {
+                            return true;
+                        }
+                    }
+                }
+                false
+            });
+            !is_internal
+        })
+        .map(|n| n.id.clone())
+        .collect();
+    for id in &external_ids {
+        graph.mark_external(id);
     }
 
     let result = metrics::build_result(&graph, config, total_deps, &all_components);

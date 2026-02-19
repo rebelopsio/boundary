@@ -106,6 +106,18 @@ impl LayerClassifier {
         self.cross_cutting.is_match(&normalized)
     }
 
+    /// Check if an import path matches cross-cutting concern patterns.
+    /// Generates candidate paths to bridge Go-style import paths with file-path-style globs.
+    pub fn is_cross_cutting_import(&self, import_path: &str) -> bool {
+        let normalized = import_path.replace('\\', "/");
+        let candidates = [
+            normalized.clone(),
+            format!("**/{normalized}"),
+            format!("{normalized}/**"),
+        ];
+        candidates.iter().any(|c| self.cross_cutting.is_match(c))
+    }
+
     /// Classify an import path string into an architectural layer.
     pub fn classify_import(&self, import_path: &str) -> Option<ArchLayer> {
         let candidates = [
@@ -512,6 +524,33 @@ mod tests {
             classifier.architecture_mode("services/auth/core/user.go"),
             ArchitectureMode::ActiveRecord
         );
+    }
+
+    #[test]
+    fn test_is_cross_cutting_import_go_paths() {
+        let config = LayersConfig {
+            cross_cutting: vec![
+                "**/observability/**".to_string(),
+                "**/auth/**".to_string(),
+                "**/utils/**".to_string(),
+            ],
+            ..LayersConfig::default()
+        };
+        let classifier = LayerClassifier::new(&config);
+
+        // Go import paths (no trailing segment after package name)
+        assert!(classifier.is_cross_cutting_import("github.com/example/app/observability"));
+        assert!(classifier.is_cross_cutting_import("github.com/example/app/auth"));
+
+        // Paths with subpackages (raw path has trailing segment)
+        assert!(classifier.is_cross_cutting_import("github.com/example/app/utils/log"));
+
+        // Non-matching paths
+        assert!(!classifier.is_cross_cutting_import("github.com/example/app/domain/user"));
+        assert!(!classifier.is_cross_cutting_import("github.com/stripe/stripe-go"));
+
+        // File paths still work
+        assert!(classifier.is_cross_cutting_import("observability/metrics.go"));
     }
 
     #[test]

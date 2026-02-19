@@ -154,6 +154,10 @@ fn format_score_section(score: &boundary_core::metrics::ArchitectureScore) -> St
         overall_color
     ));
     out.push_str(&format!(
+        "  Structural Presence:   {:.1}/100\n",
+        score.structural_presence
+    ));
+    out.push_str(&format!(
         "  Layer Isolation:       {:.1}/100\n",
         score.layer_isolation
     ));

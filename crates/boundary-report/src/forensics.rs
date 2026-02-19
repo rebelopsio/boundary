@@ -230,6 +230,10 @@ pub fn format_forensics_report(analysis: &ForensicsAnalysis) -> String {
         analysis.score.overall
     ));
     out.push_str(&format!(
+        "- Structural Presence: {:.1}/100\n",
+        analysis.score.structural_presence
+    ));
+    out.push_str(&format!(
         "- Layer Isolation: {:.1}/100\n",
         analysis.score.layer_isolation
     ));

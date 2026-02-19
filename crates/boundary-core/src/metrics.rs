@@ -37,6 +37,7 @@ pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
         return AnalysisResult {
             score: ArchitectureScore {
                 overall: 100.0,
+                structural_presence: 100.0,
                 layer_isolation: 100.0,
                 dependency_direction: 100.0,
                 interface_coverage: 100.0,
@@ -53,6 +54,7 @@ pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
 
     // Weighted average by component count
     let mut overall = 0.0f64;
+    let mut structural_presence = 0.0f64;
     let mut layer_isolation = 0.0f64;
     let mut dependency_direction = 0.0f64;
     let mut interface_coverage = 0.0f64;
@@ -61,6 +63,7 @@ pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
         for s in services {
             let weight = s.result.component_count as f64 / total_components as f64;
             overall += s.result.score.overall * weight;
+            structural_presence += s.result.score.structural_presence * weight;
             layer_isolation += s.result.score.layer_isolation * weight;
             dependency_direction += s.result.score.dependency_direction * weight;
             interface_coverage += s.result.score.interface_coverage * weight;
@@ -75,6 +78,7 @@ pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
     AnalysisResult {
         score: ArchitectureScore {
             overall,
+            structural_presence,
             layer_isolation,
             dependency_direction,
             interface_coverage,
@@ -90,6 +94,7 @@ pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArchitectureScore {
     pub overall: f64,
+    pub structural_presence: f64,
     pub layer_isolation: f64,
     pub dependency_direction: f64,
     pub interface_coverage: f64,
@@ -113,15 +118,21 @@ pub fn calculate_score(graph: &DependencyGraph, config: &Config) -> Architecture
     let interface_coverage = calculate_interface_coverage(graph);
 
     let w = &config.scoring;
-    let overall = layer_isolation * w.layer_isolation_weight
+    let correctness = layer_isolation * w.layer_isolation_weight
         + dependency_direction * w.dependency_direction_weight
         + interface_coverage * w.interface_coverage_weight;
+    let correctness = correctness.clamp(0.0, 100.0);
 
-    // Clamp to 0-100
-    let overall = overall.clamp(0.0, 100.0);
+    // Structural presence: what % of components are classified into a layer?
+    let coverage = compute_classification_coverage(graph);
+    let structural_presence = coverage.coverage_percentage;
+
+    // Multiplicative gate: overall = presence * correctness / 100
+    let overall = (structural_presence * correctness / 100.0).clamp(0.0, 100.0);
 
     ArchitectureScore {
         overall,
+        structural_presence,
         layer_isolation,
         dependency_direction,
         interface_coverage,
@@ -174,6 +185,9 @@ fn detect_layer_violations(
         .unwrap_or(Severity::Error);
 
     for (src, tgt, edge) in graph.edges_with_nodes() {
+        if src.is_external || tgt.is_external {
+            continue;
+        }
         if src.is_cross_cutting || tgt.is_cross_cutting {
             continue;
         }
@@ -392,6 +406,9 @@ fn detect_pattern_violations(
 
     // Check 2: DB access in domain layer (domain importing infrastructure paths)
     for (src, _tgt, edge) in graph.edges_with_nodes() {
+        if src.is_external {
+            continue;
+        }
         if src.is_cross_cutting {
             continue;
         }
@@ -427,6 +444,9 @@ fn detect_pattern_violations(
 
     // Check 3: Domain entity directly depending on infrastructure component
     for (src, tgt, edge) in graph.edges_with_nodes() {
+        if src.is_external || tgt.is_external {
+            continue;
+        }
         if src.is_cross_cutting || tgt.is_cross_cutting {
             continue;
         }
@@ -535,6 +555,9 @@ fn calculate_layer_isolation(graph: &DependencyGraph) -> f64 {
     let mut correct = 0u64;
 
     for (src, tgt, _) in &edges {
+        if src.is_external || tgt.is_external {
+            continue;
+        }
         if src.is_cross_cutting || tgt.is_cross_cutting {
             continue;
         }
@@ -578,7 +601,9 @@ fn calculate_dependency_direction(graph: &DependencyGraph) -> f64 {
     let non_cross_cutting: Vec<_> = edges
         .iter()
         .filter(|(src, tgt, _)| {
-            !src.is_cross_cutting
+            !src.is_external
+                && !tgt.is_external
+                && !src.is_cross_cutting
                 && !tgt.is_cross_cutting
                 && src.architecture_mode != ArchitectureMode::ServiceOriented
         })
@@ -727,14 +752,18 @@ fn compute_metrics(
 
 fn compute_classification_coverage(graph: &DependencyGraph) -> ClassificationCoverage {
     let nodes = graph.nodes();
-    let total_components = nodes.len();
 
+    let mut total_components = 0usize;
     let mut classified = 0usize;
     let mut cross_cutting = 0usize;
     let mut unclassified = 0usize;
     let mut unclassified_dirs: Vec<String> = Vec::new();
 
     for node in &nodes {
+        if node.is_external {
+            continue;
+        }
+        total_components += 1;
         if node.is_cross_cutting {
             cross_cutting += 1;
         } else if node.layer.is_some() {
@@ -1208,6 +1237,103 @@ mod tests {
             init_violations.is_empty(),
             "init detection disabled should produce no init violations"
         );
+    }
+
+    fn make_external_component(id: &str, name: &str, layer: Option<ArchLayer>) -> Component {
+        Component {
+            id: ComponentId(id.to_string()),
+            name: name.to_string(),
+            kind: ComponentKind::Entity(EntityInfo {
+                name: name.to_string(),
+                fields: vec![],
+                methods: vec![],
+                is_active_record: false,
+            }),
+            layer,
+            location: SourceLocation {
+                file: PathBuf::from("test.go"),
+                line: 1,
+                column: 1,
+            },
+            is_cross_cutting: false,
+            architecture_mode: ArchitectureMode::Ddd,
+        }
+    }
+
+    #[test]
+    fn test_external_excluded_from_layer_isolation() {
+        let mut graph = DependencyGraph::new();
+        let c1 = make_component("domain", "Entity", Some(ArchLayer::Domain));
+        let c2 = make_external_component("ext", "StripeGo", None);
+        graph.add_component(&c1);
+        graph.add_component(&c2);
+        graph.mark_external(&ComponentId("ext".to_string()));
+        graph.add_dependency(&make_dep("domain", "ext"));
+
+        let isolation = calculate_layer_isolation(&graph);
+        assert_eq!(
+            isolation, 100.0,
+            "external edges should be excluded from isolation"
+        );
+    }
+
+    #[test]
+    fn test_external_excluded_from_dependency_direction() {
+        let mut graph = DependencyGraph::new();
+        let c1 = make_component("domain", "Entity", Some(ArchLayer::Domain));
+        let c2 = make_external_component("ext", "GoogleUUID", None);
+        graph.add_component(&c1);
+        graph.add_component(&c2);
+        graph.mark_external(&ComponentId("ext".to_string()));
+        graph.add_dependency(&make_dep("domain", "ext"));
+
+        let direction = calculate_dependency_direction(&graph);
+        assert_eq!(
+            direction, 100.0,
+            "external edges should be excluded from dependency direction"
+        );
+    }
+
+    #[test]
+    fn test_external_excluded_from_layer_violations() {
+        let mut graph = DependencyGraph::new();
+        let c1 = make_component("domain", "Entity", Some(ArchLayer::Domain));
+        let c2 = make_external_component("ext", "StripePkg", Some(ArchLayer::Infrastructure));
+        graph.add_component(&c1);
+        graph.add_component(&c2);
+        graph.mark_external(&ComponentId("ext".to_string()));
+        graph.add_dependency(&make_dep("domain", "ext"));
+
+        let config = Config::default();
+        let violations = detect_violations(&graph, &config);
+
+        let layer_violations: Vec<_> = violations
+            .iter()
+            .filter(|v| matches!(v.kind, ViolationKind::LayerBoundary { .. }))
+            .collect();
+        assert!(
+            layer_violations.is_empty(),
+            "external target should suppress layer violations"
+        );
+    }
+
+    #[test]
+    fn test_external_excluded_from_classification_coverage() {
+        let mut graph = DependencyGraph::new();
+        let c1 = make_component("domain", "Entity", Some(ArchLayer::Domain));
+        let c2 = make_external_component("ext", "ExternalPkg", None);
+        graph.add_component(&c1);
+        graph.add_component(&c2);
+        graph.mark_external(&ComponentId("ext".to_string()));
+
+        let coverage = compute_classification_coverage(&graph);
+        assert_eq!(
+            coverage.total_components, 1,
+            "external nodes should not count in total"
+        );
+        assert_eq!(coverage.classified, 1);
+        assert_eq!(coverage.unclassified, 0);
+        assert!((coverage.coverage_percentage - 100.0).abs() < f64::EPSILON);
     }
 
     #[test]

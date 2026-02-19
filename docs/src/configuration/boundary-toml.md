@@ -1,6 +1,12 @@
 # Configuration: .boundary.toml
 
-Boundary is configured via a `.boundary.toml` file in your project root. Run `boundary init` to generate a starter config.
+Boundary is configured via a `.boundary.toml` file. Run `boundary init` to generate a starter config.
+
+## Config Discovery
+
+Boundary searches for `.boundary.toml` starting from the analysis target directory and walking up parent directories (similar to how Git finds `.git`). The first config file found is used. If no config is found, built-in defaults are used.
+
+This means you can place `.boundary.toml` at the repository root and analyze any subdirectory — the config will be discovered automatically.
 
 ## Full Reference
 
@@ -67,7 +73,7 @@ Additional fields:
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `cross_cutting` | list | Paths exempt from layer violation checks |
+| `cross_cutting` | list | Paths exempt from layer violation checks (applies to both source files and import targets) |
 | `architecture_mode` | string | Global mode: `"ddd"`, `"active-record"`, or `"service-oriented"` |
 
 ### `[[layers.overrides]]`

@@ -40,7 +40,16 @@ Boundary calculates three sub-scores that combine into an overall architecture s
 |-------|---------------|-----------------|
 | **Layer Isolation** | 40% | Percentage of dependencies that respect layer boundaries |
 | **Dependency Direction** | 40% | Whether dependencies flow in the correct direction (inward) |
-| **Interface Coverage** | 20% | Ratio of adapters that have corresponding port interfaces |
+| **Interface Coverage** | 20% | Ratio of infrastructure adapters that have corresponding port interfaces |
+
+### Interface Coverage
+
+Interface coverage measures how well your infrastructure layer uses ports (interfaces) to decouple from the domain. Boundary counts:
+
+- **Ports**: Components with `ComponentKind::Port` (interfaces/traits in any layer)
+- **Adapters**: Components in the **infrastructure** layer with kind `Adapter`, `Repository`, or `Service`
+
+The score is `min(ports / adapters, 1.0) * 100`. If there are no infrastructure adapters, the score is 100.
 
 ## Component Extraction
 
@@ -51,6 +60,16 @@ Boundary identifies these component types from source code:
 - **Imports** -- Dependency relationships between components
 - **Functions** -- Service methods, handlers
 
+## Automatic Filtering
+
+### Standard Library Imports
+
+Standard library imports are automatically excluded from the dependency graph. For Go, any import path without a dot (e.g., `fmt`, `encoding/json`) is recognized as stdlib. This prevents stdlib packages from inflating the unclassified component count.
+
+### External Dependencies
+
+Import targets that don't correspond to any source file in the project (e.g., third-party libraries like `github.com/stripe/stripe-go`) are automatically treated as cross-cutting. They appear in the dependency graph but don't trigger layer violations.
+
 ## Cross-Cutting Concerns
 
 Some packages (logging, error handling, utilities) don't belong to any layer. Configure these as cross-cutting concerns to exclude them from violation checks:
@@ -60,7 +79,17 @@ Some packages (logging, error handling, utilities) don't belong to any layer. Co
 cross_cutting = ["common/utils/**", "pkg/logger/**", "pkg/errors/**"]
 ```
 
+Cross-cutting patterns apply to both source files and import targets. Use `**` glob patterns for best results:
+
+```toml
+cross_cutting = ["**/methods/**", "**/observability/**", "**/uptime/**"]
+```
+
 Cross-cutting components are still tracked in the dependency graph for visualization, but dependencies to/from them don't count as violations.
+
+## Anemic Domain Model Detection
+
+Boundary flags domain entities that have no business methods as potential anemic domain models. This check only applies to components in the **domain** layer — infrastructure DTOs and data transfer objects in other layers are not flagged.
 
 ## Custom Layer Patterns
 

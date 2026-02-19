@@ -288,13 +288,13 @@ fn print_score_only(module: &str, score: &metrics::ArchitectureScore, format: Ou
     match format {
         OutputFormat::Json => {
             println!(
-                "{{\"module\":\"{}\",\"overall\":{},\"layer_isolation\":{},\"dependency_direction\":{},\"interface_coverage\":{}}}",
+                "{{\"module\":\"{}\",\"overall\":{:.1},\"layer_isolation\":{:.1},\"dependency_direction\":{:.1},\"interface_coverage\":{:.1}}}",
                 module, score.overall, score.layer_isolation, score.dependency_direction, score.interface_coverage
             );
         }
         OutputFormat::Text | OutputFormat::Markdown => {
             println!(
-                "{}: {}/100 (Layer: {}, Deps: {}, Interfaces: {})",
+                "{}: {:.1}/100 (Layer: {:.1}, Deps: {:.1}, Interfaces: {:.1})",
                 module,
                 score.overall,
                 score.layer_isolation,
@@ -821,16 +821,11 @@ fn run_analysis(
             }
         }
 
-        // Collect known source component IDs for external dependency detection
-        let source_ids: std::collections::HashSet<_> =
-            all_components.iter().map(|c| &c.id).collect();
-
-        // Second pass: add dependencies, marking external targets as cross-cutting
+        // Second pass: add dependencies
         for (_rel_path, fr, _content) in file_results {
             for (dep, from_layer, to_layer, is_cc, arch_mode, to_is_cc) in &fr.dependencies {
                 graph.ensure_node_with_mode(&dep.from, *from_layer, *is_cc, *arch_mode);
-                let target_is_external = !source_ids.contains(&dep.to);
-                graph.ensure_node(&dep.to, *to_layer, *to_is_cc || target_is_external);
+                graph.ensure_node(&dep.to, *to_layer, *to_is_cc);
                 graph.add_dependency(dep);
             }
             total_deps += fr.dependencies.len();

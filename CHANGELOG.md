@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/rebelopsio/boundary/compare/v0.9.1...v0.10.0) (2026-02-19)
+
+
+### Features
+
+* add multiplicative structural presence gate to scoring ([#46](https://github.com/rebelopsio/boundary/issues/46)) ([384b8f5](https://github.com/rebelopsio/boundary/commit/384b8f518400da2e0d80f535976893e75fa3598a))
+
 ## [0.9.1](https://github.com/rebelopsio/boundary/compare/v0.9.0...v0.9.1) (2026-02-19)
 
 

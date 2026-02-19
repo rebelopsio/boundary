@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/rebelopsio/boundary/compare/v0.9.0...v0.9.1) (2026-02-19)
+
+
+### Bug Fixes
+
+* remove target_is_external from main.rs ([#44](https://github.com/rebelopsio/boundary/issues/44)) ([b144f26](https://github.com/rebelopsio/boundary/commit/b144f26852fa8dc01b192dff462e4b3ebbd8b288))
+
 ## [0.9.0](https://github.com/rebelopsio/boundary/compare/v0.8.5...v0.9.0) (2026-02-19)
 
 

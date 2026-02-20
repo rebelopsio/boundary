@@ -112,6 +112,16 @@ updating the spec.
 Project config lives in `.boundary.toml`. Defines layer path patterns, overrides, scoring
 weights, and cross-cutting concern patterns.
 
+## GitHub Workflows
+
+`.github/workflows/` contains: `ci.yml`, `release.yml`, `publish-crates.yml`, `docs.yml`,
+`boundary.yml`, `release-please.yml`, `pr-labeler.yml`.
+
+**When adding a new crate, binary, test suite, or language analyzer**, review the workflows and
+check whether any jobs or steps need updating — e.g., matrix entries, artifact paths, crate
+publish lists, or test commands. Do not assume existing workflows automatically cover new
+additions.
+
 ## Key Constraints
 
 - **Spec first**: no scoring or classification changes without a corresponding spec update

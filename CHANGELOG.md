@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/rebelopsio/boundary/compare/v0.10.2...v0.11.0) (2026-02-20)
+
+
+### Features
+
+* **discovery:** implement all 9 discovery acceptance scenarios ([#52](https://github.com/rebelopsio/boundary/issues/52)) ([00e9548](https://github.com/rebelopsio/boundary/commit/00e95480c8cdc162ef67f3e6188cbe25bd8b8dde))
+
 ## [0.10.2](https://github.com/rebelopsio/boundary/compare/v0.10.1...v0.10.2) (2026-02-20)
 
 

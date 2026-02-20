@@ -12,7 +12,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.10.1"
+version = "0.10.2"
 edition = "2021"
 authors = ["Stephen Morgan"]
 license = "MIT OR Apache-2.0"
@@ -60,13 +60,13 @@ chrono = { version = "0.4", features = ["serde"] }
 tempfile = "3.14"
 
 # Internal workspace crates (version required for crates.io publishing)
-boundary-core = { path = "crates/boundary-core", version = "0.10.1" }
-boundary-go = { path = "crates/boundary-go", version = "0.10.1" }
-boundary-rust = { path = "crates/boundary-rust", version = "0.10.1" }
-boundary-typescript = { path = "crates/boundary-typescript", version = "0.10.1" }
-boundary-java = { path = "crates/boundary-java", version = "0.10.1" }
-boundary-report = { path = "crates/boundary-report", version = "0.10.1" }
-boundary-lsp = { path = "crates/boundary-lsp", version = "0.10.1" }
+boundary-core = { path = "crates/boundary-core", version = "0.10.2" }
+boundary-go = { path = "crates/boundary-go", version = "0.10.2" }
+boundary-rust = { path = "crates/boundary-rust", version = "0.10.2" }
+boundary-typescript = { path = "crates/boundary-typescript", version = "0.10.2" }
+boundary-java = { path = "crates/boundary-java", version = "0.10.2" }
+boundary-report = { path = "crates/boundary-report", version = "0.10.2" }
+boundary-lsp = { path = "crates/boundary-lsp", version = "0.10.2" }
 
 [profile.release]
 lto = true

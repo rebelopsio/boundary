@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/rebelopsio/boundary/compare/v0.10.0...v0.10.1) (2026-02-20)
+
+
+### Bug Fixes
+
+* normalize paths against project root ([#48](https://github.com/rebelopsio/boundary/issues/48)) ([2ac8429](https://github.com/rebelopsio/boundary/commit/2ac8429e6e04c7bd76ada47d446b771b08673ce7))
+
 ## [0.10.0](https://github.com/rebelopsio/boundary/compare/v0.9.1...v0.10.0) (2026-02-19)
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.2](https://github.com/rebelopsio/boundary/compare/v0.10.1...v0.10.2) (2026-02-20)
+
+
+### Bug Fixes
+
+* compute_classification_coverage bug ([#50](https://github.com/rebelopsio/boundary/issues/50)) ([7aebbb7](https://github.com/rebelopsio/boundary/commit/7aebbb7b5c4b98cbf6ca0a221bb615add257cb0f))
+
 ## [0.10.1](https://github.com/rebelopsio/boundary/compare/v0.10.0...v0.10.1) (2026-02-20)
 
 

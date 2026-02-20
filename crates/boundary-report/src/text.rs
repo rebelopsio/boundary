@@ -107,10 +107,11 @@ pub fn format_report(result: &AnalysisResult) -> String {
         }
     }
 
-    // Violations
-    if result.violations.is_empty() {
+    // Violations — only claim "no violations" when we actually checked (layers were detected)
+    let no_layers = result.score.structural_presence == 0.0 && result.component_count > 0;
+    if result.violations.is_empty() && !no_layers {
         out.push_str(&format!("\n{}\n", "No violations found!".green().bold()));
-    } else {
+    } else if !result.violations.is_empty() {
         out.push_str(&format!(
             "\n{} ({} found)\n{}\n",
             "Violations".red().bold(),

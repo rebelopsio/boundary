@@ -628,6 +628,7 @@ fn run_analysis(
     let classifier = LayerClassifier::new(&config.layers);
     let mut graph = DependencyGraph::new();
     let mut total_deps = 0usize;
+    let mut total_files = 0usize;
     let mut all_components = Vec::new();
 
     // Load cache if incremental
@@ -665,6 +666,7 @@ fn run_analysis(
         if source_files.is_empty() {
             continue;
         }
+        total_files += source_files.len();
 
         // Parse and extract in parallel
         let file_results: Vec<(String, FileResult, String)> = source_files
@@ -936,6 +938,6 @@ fn run_analysis(
         graph.mark_external(id);
     }
 
-    let result = metrics::build_result(&graph, config, total_deps, &all_components);
+    let result = metrics::build_result(&graph, config, total_deps, &all_components, total_files);
     Ok(FullAnalysis { result, graph })
 }

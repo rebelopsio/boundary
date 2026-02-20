@@ -45,6 +45,7 @@ pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
             violations: vec![],
             component_count: 0,
             dependency_count: 0,
+            files_analyzed: 0,
             metrics: None,
         };
     }
@@ -75,6 +76,8 @@ pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
         .flat_map(|s| s.result.violations.clone())
         .collect();
 
+    let total_files: usize = services.iter().map(|s| s.result.files_analyzed).sum();
+
     AnalysisResult {
         score: ArchitectureScore {
             overall,
@@ -86,6 +89,7 @@ pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
         violations: all_violations,
         component_count: total_components,
         dependency_count: total_deps,
+        files_analyzed: total_files,
         metrics: None,
     }
 }
@@ -107,6 +111,9 @@ pub struct AnalysisResult {
     pub violations: Vec<Violation>,
     pub component_count: usize,
     pub dependency_count: usize,
+    /// Number of source files analyzed. Zero means no supported files were found.
+    #[serde(default)]
+    pub files_analyzed: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics: Option<MetricsReport>,
 }
@@ -669,6 +676,7 @@ pub fn build_result(
     config: &Config,
     dep_count: usize,
     components: &[Component],
+    files_analyzed: usize,
 ) -> AnalysisResult {
     let score = calculate_score(graph, config);
     let violations = detect_violations(graph, config);
@@ -680,6 +688,7 @@ pub fn build_result(
         violations,
         component_count: graph.node_count(),
         dependency_count: dep_count,
+        files_analyzed,
         metrics: Some(metrics),
     }
 }
@@ -928,9 +937,10 @@ mod tests {
     fn test_build_result() {
         let graph = DependencyGraph::new();
         let config = Config::default();
-        let result = build_result(&graph, &config, 0, &[]);
+        let result = build_result(&graph, &config, 0, &[], 0);
         assert_eq!(result.component_count, 0);
         assert_eq!(result.dependency_count, 0);
+        assert_eq!(result.files_analyzed, 0);
         assert!(result.violations.is_empty());
         assert!(result.metrics.is_some());
     }

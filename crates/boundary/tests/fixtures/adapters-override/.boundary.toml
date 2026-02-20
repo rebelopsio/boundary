@@ -1,0 +1,3 @@
+[[layers.overrides]]
+scope = "adapters/**"
+infrastructure = ["adapters/**"]

@@ -41,6 +41,7 @@ pub fn save_snapshot(project_path: &Path, result: &AnalysisResult) -> Result<()>
             violations: result.violations.clone(),
             component_count: result.component_count,
             dependency_count: result.dependency_count,
+            files_analyzed: result.files_analyzed,
             metrics: result.metrics.clone(),
         },
     };
@@ -167,6 +168,7 @@ mod tests {
             violations: vec![],
             component_count: 5,
             dependency_count: 3,
+            files_analyzed: 5,
             metrics: None,
         }
     }

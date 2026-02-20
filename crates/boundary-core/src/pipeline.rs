@@ -71,6 +71,7 @@ impl AnalysisPipeline {
     pub fn analyze_module(&self, module_path: &Path, project_root: &Path) -> Result<FullAnalysis> {
         let mut graph = DependencyGraph::new();
         let mut total_deps = 0usize;
+        let mut total_files = 0usize;
         let mut all_components = Vec::new();
         let mut all_dependencies = Vec::new();
 
@@ -184,6 +185,8 @@ impl AnalysisPipeline {
                 })
                 .collect();
 
+            total_files += file_results.len();
+
             // First pass: add all source file components
             for fr in &file_results {
                 for (comp, _) in &fr.components {
@@ -209,7 +212,13 @@ impl AnalysisPipeline {
             }
         }
 
-        let result = metrics::build_result(&graph, &self.config, total_deps, &all_components);
+        let result = metrics::build_result(
+            &graph,
+            &self.config,
+            total_deps,
+            &all_components,
+            total_files,
+        );
         Ok(FullAnalysis {
             result,
             graph,
@@ -221,6 +230,7 @@ impl AnalysisPipeline {
     fn analyze_inner(&self, project_path: &Path, incremental: bool) -> Result<FullAnalysis> {
         let mut graph = DependencyGraph::new();
         let mut total_deps = 0usize;
+        let mut total_files = 0usize;
         let mut all_components = Vec::new();
         let mut all_dependencies = Vec::new();
 
@@ -403,6 +413,7 @@ impl AnalysisPipeline {
 
             let current_files: Vec<String> =
                 file_results.iter().map(|(p, _, _)| p.clone()).collect();
+            total_files += file_results.len();
 
             // First pass: add all source file components and update cache
             for (rel_path, fr, content) in &file_results {
@@ -458,7 +469,13 @@ impl AnalysisPipeline {
             }
         }
 
-        let result = metrics::build_result(&graph, &self.config, total_deps, &all_components);
+        let result = metrics::build_result(
+            &graph,
+            &self.config,
+            total_deps,
+            &all_components,
+            total_files,
+        );
         Ok(FullAnalysis {
             result,
             graph,

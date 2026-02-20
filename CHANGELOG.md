@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/rebelopsio/boundary/compare/v0.11.0...v0.12.0) (2026-02-20)
+
+
+### Features
+
+* **validation:** implement all 7 validation acceptance scenarios ([#54](https://github.com/rebelopsio/boundary/issues/54)) ([aef9e1a](https://github.com/rebelopsio/boundary/commit/aef9e1aa2b167afdaff4d033b692787456bfce1d))
+
 ## [0.11.0](https://github.com/rebelopsio/boundary/compare/v0.10.2...v0.11.0) (2026-02-20)
 
 

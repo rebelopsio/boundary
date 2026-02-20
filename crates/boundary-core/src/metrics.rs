@@ -763,6 +763,13 @@ fn compute_classification_coverage(graph: &DependencyGraph) -> ClassificationCov
         if node.is_external {
             continue;
         }
+        // Only count real extracted components (structs, interfaces, etc.).
+        // Synthetic placeholder nodes created for dependency tracking
+        // (<file> source nodes and <package> import target nodes) have
+        // kind: None and must not affect the classification coverage metric.
+        if node.kind.is_none() {
+            continue;
+        }
         total_components += 1;
         if node.is_cross_cutting {
             cross_cutting += 1;

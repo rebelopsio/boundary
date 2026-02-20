@@ -496,8 +496,10 @@ fn test_score_java_fixture() {
     let (overall, _presence, layer, deps, iface) = parse_score_json(&stdout);
 
     // Java fixture has violations and unclassified components;
-    // structural presence gate reduces the overall score further
-    assert_score_near(overall, 14.5, 5.0, "java overall");
+    // structural presence gate reduces the overall score further.
+    // Synthetic placeholder nodes (kind: None) are excluded from presence
+    // calculation, raising the effective presence vs. the pre-fix baseline.
+    assert_score_near(overall, 20.0, 5.0, "java overall");
     assert!(
         layer <= 10.0,
         "java layer_isolation should be low, got {layer}"

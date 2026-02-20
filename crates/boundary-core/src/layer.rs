@@ -73,24 +73,26 @@ impl LayerClassifier {
     /// Classify a file path into an architectural layer.
     pub fn classify(&self, path: &str) -> Option<ArchLayer> {
         let normalized = path.replace('\\', "/");
+        let normalized = normalized.strip_prefix("./").unwrap_or(&normalized);
 
         // Check overrides first (first matching scope wins)
         for ovr in &self.overrides {
-            if ovr.scope.is_match(&normalized) {
-                return self.classify_with_override(ovr, &normalized);
+            if ovr.scope.is_match(normalized) {
+                return self.classify_with_override(ovr, normalized);
             }
         }
 
         // No override matched — use global patterns
-        self.classify_global(&normalized)
+        self.classify_global(normalized)
     }
 
     /// Get the architecture mode for a given file path.
     /// Checks overrides first (first scope match wins), falls back to global default.
     pub fn architecture_mode(&self, path: &str) -> ArchitectureMode {
         let normalized = path.replace('\\', "/");
+        let normalized = normalized.strip_prefix("./").unwrap_or(&normalized);
         for ovr in &self.overrides {
-            if ovr.scope.is_match(&normalized) {
+            if ovr.scope.is_match(normalized) {
                 if let Some(mode) = ovr.architecture_mode {
                     return mode;
                 }
@@ -103,7 +105,8 @@ impl LayerClassifier {
     /// Check if a path matches cross-cutting concern patterns.
     pub fn is_cross_cutting(&self, path: &str) -> bool {
         let normalized = path.replace('\\', "/");
-        self.cross_cutting.is_match(&normalized)
+        let normalized = normalized.strip_prefix("./").unwrap_or(&normalized);
+        self.cross_cutting.is_match(normalized)
     }
 
     /// Check if an import path matches cross-cutting concern patterns.

@@ -239,7 +239,8 @@ fn cmd_analyze(
     score_only: bool,
 ) -> Result<()> {
     validate_path(path)?;
-    let config = load_config(path, config_path)?;
+    let project_root = resolve_project_root(path, config_path);
+    let config = load_config(&project_root, config_path)?;
 
     if per_service {
         let analyzers = create_analyzers(path, &config, languages)?;
@@ -264,7 +265,7 @@ fn cmd_analyze(
         return Ok(());
     }
 
-    let analysis = run_analysis(path, &config, languages, incremental)?;
+    let analysis = run_analysis(path, &project_root, &config, languages, incremental)?;
 
     if score_only {
         let module_name = path
@@ -320,7 +321,8 @@ fn cmd_check(
     per_service: bool,
 ) -> Result<()> {
     validate_path(path)?;
-    let config = load_config(path, config_path)?;
+    let project_root = resolve_project_root(path, config_path);
+    let config = load_config(&project_root, config_path)?;
     let fail_on: Severity = fail_on_str.parse()?;
 
     if per_service {
@@ -348,7 +350,7 @@ fn cmd_check(
         return Ok(());
     }
 
-    let analysis = run_analysis(path, &config, languages, incremental)?;
+    let analysis = run_analysis(path, &project_root, &config, languages, incremental)?;
 
     // Evolution tracking
     if track {
@@ -403,8 +405,9 @@ fn cmd_diagram(
     languages: Option<&[String]>,
 ) -> Result<()> {
     validate_path(path)?;
-    let config = load_config(path, config_path)?;
-    let analysis = run_analysis(path, &config, languages, false)?;
+    let project_root = resolve_project_root(path, config_path);
+    let config = load_config(&project_root, config_path)?;
+    let analysis = run_analysis(path, &project_root, &config, languages, false)?;
 
     let diagram = match diagram_type {
         DiagramType::Layers => boundary_report::diagram::generate_layer_diagram(&analysis.graph),
@@ -468,6 +471,22 @@ fn load_config(project_path: &Path, config_path: Option<&Path>) -> Result<Config
         Some(p) => Config::load(p),
         None => Ok(Config::load_or_default(project_path)),
     }
+}
+
+/// Resolve the project root directory for path normalization.
+///
+/// When `--config` is explicit, derives root from the config file's parent.
+/// Otherwise walks ancestors looking for `.boundary.toml` or `.git`.
+/// Falls back to `analysis_path` if nothing found.
+fn resolve_project_root(analysis_path: &Path, config_path: Option<&Path>) -> PathBuf {
+    if let Some(cp) = config_path {
+        if let Some(parent) = cp.parent() {
+            if parent.exists() {
+                return parent.to_path_buf();
+            }
+        }
+    }
+    pipeline::find_project_root(analysis_path).unwrap_or_else(|| analysis_path.to_path_buf())
 }
 
 /// Full analysis output including the graph for diagram generation.
@@ -600,6 +619,7 @@ fn auto_detect_languages(project_path: &Path) -> Vec<String> {
 
 fn run_analysis(
     project_path: &Path,
+    project_root: &Path,
     config: &Config,
     language_override: Option<&[String]>,
     incremental: bool,
@@ -659,7 +679,7 @@ fn run_analysis(
                 };
 
                 let rel_path = file_path
-                    .strip_prefix(project_path)
+                    .strip_prefix(project_root)
                     .unwrap_or(file_path)
                     .to_string_lossy()
                     .to_string();
@@ -856,12 +876,12 @@ fn run_analysis(
             let rel = c
                 .location
                 .file
-                .strip_prefix(project_path)
+                .strip_prefix(project_root)
                 .unwrap_or(&c.location.file);
             rel.parent().map(|p| p.to_string_lossy().replace('\\', "/"))
         })
         .collect();
-    let project_path_str = project_path.to_string_lossy().replace('\\', "/");
+    let project_root_str = project_root.to_string_lossy().replace('\\', "/");
     let external_ids: Vec<_> = graph
         .nodes()
         .iter()
@@ -881,7 +901,7 @@ fn run_analysis(
                 return false;
             }
             // Absolute paths under the project directory are internal
-            if path_part.starts_with(project_path_str.as_str()) {
+            if path_part.starts_with(project_root_str.as_str()) {
                 return false;
             }
             // Also normalize dots to slashes for Java-style package names

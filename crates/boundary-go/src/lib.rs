@@ -273,6 +273,10 @@ fn extract_interfaces(
         if name.is_empty() {
             continue;
         }
+        // Skip unexported types (Go convention: lowercase first letter = unexported)
+        if name.starts_with(|c: char| c.is_lowercase()) {
+            continue;
+        }
 
         components.push(Component {
             id: ComponentId::new(pkg, &name),
@@ -336,6 +340,10 @@ fn extract_structs(query: &Query, parsed: &ParsedFile, pkg: &str, components: &m
         }
 
         if name.is_empty() {
+            continue;
+        }
+        // Skip unexported types (Go convention: lowercase first letter = unexported)
+        if name.starts_with(|c: char| c.is_lowercase()) {
             continue;
         }
 

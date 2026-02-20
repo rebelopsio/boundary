@@ -285,6 +285,7 @@ mod tests {
             violations: vec![],
             component_count: 3,
             dependency_count: 2,
+            files_analyzed: 3,
             metrics: None,
         };
         let report = format_report(&result);
@@ -305,6 +306,7 @@ mod tests {
             violations: vec![],
             component_count: 0,
             dependency_count: 0,
+            files_analyzed: 0,
             metrics: None,
         };
         let (report, passed) = format_check(&result, Severity::Error);

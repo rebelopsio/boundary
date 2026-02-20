@@ -14,8 +14,37 @@ pub fn format_report(result: &AnalysisResult) -> String {
     ));
     out.push_str(&format!("{}\n\n", "=".repeat(40)));
 
-    // Score summary
-    out.push_str(&format_score_section(&result.score));
+    if result.files_analyzed == 0 {
+        out.push_str(&format!(
+            "{}\n",
+            "No supported source files found".yellow().bold()
+        ));
+        out.push_str(
+            "  The target directory contains no files that boundary can analyze.\n  \
+             Ensure the directory contains Go, Rust, TypeScript, or Java source files.\n",
+        );
+    } else if result.component_count == 0 {
+        out.push_str(&format!(
+            "{}\n",
+            "No components were detected".yellow().bold()
+        ));
+        out.push_str(
+            "  Source files were found but no exported types could be extracted.\n  \
+             Ensure types are exported (e.g. capitalized names in Go).\n",
+        );
+    } else if result.score.structural_presence == 0.0 {
+        // Components exist but none match a known DDD layer pattern
+        out.push_str(&format!(
+            "{}\n",
+            "No architectural layers detected".yellow().bold()
+        ));
+        out.push_str(
+            "  Components were found but none match a known DDD layer pattern.\n  \
+             Add layer path patterns to .boundary.toml to classify them.\n",
+        );
+    } else {
+        out.push_str(&format_score_section(&result.score));
+    }
 
     // Stats
     out.push_str(&format!(
@@ -34,7 +63,8 @@ pub fn format_report(result: &AnalysisResult) -> String {
             let mut layers: Vec<_> = metrics.components_by_layer.iter().collect();
             layers.sort_by_key(|(k, _)| (*k).clone());
             for (layer, count) in layers {
-                out.push_str(&format!("    {layer}: {count}\n"));
+                let label = capitalize(layer);
+                out.push_str(&format!("    {label}: {count}\n"));
             }
         }
 
@@ -139,7 +169,8 @@ pub fn format_report(result: &AnalysisResult) -> String {
 fn format_score_section(score: &boundary_core::metrics::ArchitectureScore) -> String {
     let mut out = String::new();
 
-    let overall_str = format!("{:.1}", score.overall);
+    let overall_pct = score.overall.round() as i64;
+    let overall_str = format!("{overall_pct}%");
     let overall_color = if score.overall >= 80.0 {
         overall_str.green()
     } else if score.overall >= 50.0 {
@@ -148,29 +179,33 @@ fn format_score_section(score: &boundary_core::metrics::ArchitectureScore) -> St
         overall_str.red()
     };
 
+    out.push_str(&format!("{}: {}\n", "Overall Score".bold(), overall_color));
     out.push_str(&format!(
-        "{}: {}/100\n",
-        "Overall Score".bold(),
-        overall_color
+        "  Structural Presence: {}%\n",
+        score.structural_presence.round() as i64
     ));
     out.push_str(&format!(
-        "  Structural Presence:   {:.1}/100\n",
-        score.structural_presence
+        "  Layer Isolation: {}%\n",
+        score.layer_isolation.round() as i64
     ));
     out.push_str(&format!(
-        "  Layer Isolation:       {:.1}/100\n",
-        score.layer_isolation
+        "  Dependency Direction: {}%\n",
+        score.dependency_direction.round() as i64
     ));
     out.push_str(&format!(
-        "  Dependency Direction:  {:.1}/100\n",
-        score.dependency_direction
-    ));
-    out.push_str(&format!(
-        "  Interface Coverage:    {:.1}/100\n",
-        score.interface_coverage
+        "  Interface Coverage: {}%\n",
+        score.interface_coverage.round() as i64
     ));
 
     out
+}
+
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+    }
 }
 
 /// Format a multi-service analysis report for terminal output.
@@ -256,6 +291,187 @@ pub fn format_multi_service_report(multi: &boundary_core::metrics::MultiServiceR
 
     out.push('\n');
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use boundary_core::metrics::{AnalysisResult, ArchitectureScore};
+
+    fn zero_presence_result() -> AnalysisResult {
+        AnalysisResult {
+            score: ArchitectureScore {
+                overall: 0.0,
+                structural_presence: 0.0,
+                layer_isolation: 100.0,
+                dependency_direction: 100.0,
+                interface_coverage: 100.0,
+            },
+            violations: vec![],
+            component_count: 2,
+            dependency_count: 0,
+            files_analyzed: 1,
+            metrics: None,
+        }
+    }
+
+    fn no_source_files_result() -> AnalysisResult {
+        AnalysisResult {
+            score: ArchitectureScore {
+                overall: 100.0,
+                structural_presence: 100.0,
+                layer_isolation: 100.0,
+                dependency_direction: 100.0,
+                interface_coverage: 100.0,
+            },
+            violations: vec![],
+            component_count: 0,
+            dependency_count: 0,
+            files_analyzed: 0,
+            metrics: None,
+        }
+    }
+
+    fn no_components_result() -> AnalysisResult {
+        AnalysisResult {
+            score: ArchitectureScore {
+                overall: 100.0,
+                structural_presence: 100.0,
+                layer_isolation: 100.0,
+                dependency_direction: 100.0,
+                interface_coverage: 100.0,
+            },
+            violations: vec![],
+            component_count: 0,
+            dependency_count: 0,
+            files_analyzed: 3,
+            metrics: None,
+        }
+    }
+
+    fn full_ddd_result() -> AnalysisResult {
+        use boundary_core::metrics_report::{
+            ClassificationCoverage, DependencyDepthMetrics, MetricsReport,
+        };
+        use std::collections::HashMap;
+
+        let mut by_layer = HashMap::new();
+        by_layer.insert("domain".to_string(), 2usize);
+        by_layer.insert("application".to_string(), 1usize);
+        by_layer.insert("infrastructure".to_string(), 1usize);
+
+        AnalysisResult {
+            score: ArchitectureScore {
+                overall: 100.0,
+                structural_presence: 100.0,
+                layer_isolation: 100.0,
+                dependency_direction: 100.0,
+                interface_coverage: 100.0,
+            },
+            violations: vec![],
+            component_count: 4,
+            dependency_count: 0,
+            files_analyzed: 3,
+            metrics: Some(MetricsReport {
+                components_by_kind: HashMap::new(),
+                components_by_layer: by_layer,
+                violations_by_kind: HashMap::new(),
+                dependency_depth: DependencyDepthMetrics {
+                    max_depth: 0,
+                    avg_depth: 0.0,
+                },
+                layer_coupling: boundary_core::metrics_report::LayerCouplingMatrix {
+                    matrix: HashMap::new(),
+                },
+                classification_coverage: Some(ClassificationCoverage {
+                    total_components: 4,
+                    classified: 4,
+                    cross_cutting: 0,
+                    unclassified: 0,
+                    coverage_percentage: 100.0,
+                    unclassified_paths: vec![],
+                }),
+            }),
+        }
+    }
+
+    // Scenario: Codebase with complete DDD layer structure reports all layer components
+    // Then the report lists components found in each layer (title-cased)
+    #[test]
+    fn format_report_complete_ddd_shows_title_cased_layers() {
+        let result = full_ddd_result();
+        let output = format_report(&result);
+        assert!(output.contains("Domain"), "should show Domain: {output}");
+        assert!(
+            output.contains("Application"),
+            "should show Application: {output}"
+        );
+        assert!(
+            output.contains("Infrastructure"),
+            "should show Infrastructure: {output}"
+        );
+    }
+
+    // Scenario: Codebase where all components map to DDD layers receives full structural presence
+    // Then the output contains "Structural Presence: 100%"
+    #[test]
+    fn format_report_structural_presence_percentage_format() {
+        let result = full_ddd_result();
+        let output = format_report(&result);
+        assert!(
+            output.contains("Structural Presence: 100%"),
+            "should display Structural Presence: 100%: {output}"
+        );
+    }
+
+    // Scenario: Codebase with no recognizable architectural structure
+    // Then the report states that no architectural layers were detected
+    #[test]
+    fn format_report_no_layers_detected_message() {
+        let result = zero_presence_result();
+        let output = format_report(&result);
+        assert!(
+            output.contains("No architectural layers detected"),
+            "should state no architectural layers detected: {output}"
+        );
+    }
+
+    // The score section should not be shown when no layers are detected
+    #[test]
+    fn format_report_no_score_section_when_no_layers() {
+        let result = zero_presence_result();
+        let output = format_report(&result);
+        assert!(
+            !output.contains("Overall Score"),
+            "should not show Overall Score when no layers detected: {output}"
+        );
+    }
+
+    // Scenario: Target directory contains no Go files
+    // Then the report states that no supported source files were found
+    #[test]
+    fn format_report_no_source_files_shows_message() {
+        let result = no_source_files_result();
+        let output = format_report(&result);
+        assert!(
+            output.to_lowercase().contains("no supported source files"),
+            "should state no supported source files were found: {output}"
+        );
+    }
+
+    // Scenario: Target directory contains Go files but no extractable components
+    // Then the report states that no components were detected in the analyzed files
+    #[test]
+    fn format_report_no_components_detected_shows_message() {
+        let result = no_components_result();
+        let output = format_report(&result);
+        assert!(
+            output
+                .to_lowercase()
+                .contains("no components were detected"),
+            "should state no components were detected: {output}"
+        );
+    }
 }
 
 /// Format a check result for CI use. Returns (text, passed).

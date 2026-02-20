@@ -105,6 +105,7 @@ mod tests {
             violations,
             component_count: 5,
             dependency_count: 3,
+            files_analyzed: 5,
             metrics: None,
         }
     }

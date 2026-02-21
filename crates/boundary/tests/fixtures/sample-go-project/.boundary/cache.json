@@ -1,5 +1,22 @@
 {
   "files": {
+    "internal/domain/user/bad_dependency.go": {
+      "hash": "a991f9a9731c8bd4a3b819ee3d7676a9835fda2a2e23be384b8153f1e912c280",
+      "components": [],
+      "dependencies": [
+        {
+          "from": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/domain/user::<file>",
+          "to": "github.com/example/app/internal/infrastructure/postgres::<package>",
+          "kind": "Import",
+          "location": {
+            "file": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/domain/user/bad_dependency.go",
+            "line": 4,
+            "column": 2
+          },
+          "import_path": "github.com/example/app/internal/infrastructure/postgres"
+        }
+      ]
+    },
     "internal/application/user/service.go": {
       "hash": "22a93c0ec6de90fe5488c095d6a6a09de5248b44fc2690250c74a50b62ce1bfe",
       "components": [
@@ -28,54 +45,6 @@
             "column": 2
           },
           "import_path": "github.com/example/app/internal/domain/user"
-        }
-      ]
-    },
-    "internal/infrastructure/postgres/user_repository.go": {
-      "hash": "ebc8d117ab9b489514171fa9536aaa72b3961f63579514d49ae79c274917d0c7",
-      "components": [
-        {
-          "id": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/infrastructure/postgres::PostgresUserRepository",
-          "name": "PostgresUserRepository",
-          "kind": "Repository",
-          "layer": "Infrastructure",
-          "location": {
-            "file": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/infrastructure/postgres/user_repository.go",
-            "line": 9,
-            "column": 6
-          },
-          "is_cross_cutting": false,
-          "architecture_mode": "ddd"
-        }
-      ],
-      "dependencies": [
-        {
-          "from": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/infrastructure/postgres::<file>",
-          "to": "github.com/example/app/internal/domain/user::<package>",
-          "kind": "Import",
-          "location": {
-            "file": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/infrastructure/postgres/user_repository.go",
-            "line": 5,
-            "column": 2
-          },
-          "import_path": "github.com/example/app/internal/domain/user"
-        }
-      ]
-    },
-    "internal/domain/user/bad_dependency.go": {
-      "hash": "a991f9a9731c8bd4a3b819ee3d7676a9835fda2a2e23be384b8153f1e912c280",
-      "components": [],
-      "dependencies": [
-        {
-          "from": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/domain/user::<file>",
-          "to": "github.com/example/app/internal/infrastructure/postgres::<package>",
-          "kind": "Import",
-          "location": {
-            "file": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/domain/user/bad_dependency.go",
-            "line": 4,
-            "column": 2
-          },
-          "import_path": "github.com/example/app/internal/infrastructure/postgres"
         }
       ]
     },
@@ -151,6 +120,37 @@
         }
       ],
       "dependencies": []
+    },
+    "internal/infrastructure/postgres/user_repository.go": {
+      "hash": "ebc8d117ab9b489514171fa9536aaa72b3961f63579514d49ae79c274917d0c7",
+      "components": [
+        {
+          "id": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/infrastructure/postgres::PostgresUserRepository",
+          "name": "PostgresUserRepository",
+          "kind": "Repository",
+          "layer": "Infrastructure",
+          "location": {
+            "file": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/infrastructure/postgres/user_repository.go",
+            "line": 9,
+            "column": 6
+          },
+          "is_cross_cutting": false,
+          "architecture_mode": "ddd"
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/infrastructure/postgres::<file>",
+          "to": "github.com/example/app/internal/domain/user::<package>",
+          "kind": "Import",
+          "location": {
+            "file": "/Users/smorgan/source/personal/boundary/crates/boundary/tests/fixtures/sample-go-project/internal/infrastructure/postgres/user_repository.go",
+            "line": 5,
+            "column": 2
+          },
+          "import_path": "github.com/example/app/internal/domain/user"
+        }
+      ]
     }
   }
 }

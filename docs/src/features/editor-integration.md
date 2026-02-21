@@ -24,7 +24,22 @@ cargo install --git https://github.com/rebelopsio/boundary boundary-lsp
 
 ## Editor Setup
 
-### Neovim (nvim-lspconfig)
+### Neovim
+
+The recommended way is [boundary.nvim](https://github.com/rebelopsio/boundary.nvim), a dedicated plugin that provides LSP integration, commands, and statusline support. Requires Neovim 0.11+.
+
+**lazy.nvim:**
+
+```lua
+{
+  "rebelopsio/boundary.nvim",
+  opts = {},
+}
+```
+
+This gives you inline diagnostics, hover info, and commands like `:BoundaryAnalyze`, `:BoundaryScore`, `:BoundaryCheck`, and `:BoundaryDiagram`. See the [boundary.nvim README](https://github.com/rebelopsio/boundary.nvim) for the full feature list and configuration options.
+
+**Manual setup (nvim-lspconfig, Neovim < 0.11):**
 
 ```lua
 local lspconfig = require("lspconfig")

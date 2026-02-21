@@ -1,5 +1,11 @@
 # Installation
 
+## Homebrew (macOS / Linux)
+
+```bash
+brew install rebelopsio/tap/boundary
+```
+
 ## Pre-built Binaries
 
 Download the latest release for your platform from [GitHub Releases](https://github.com/rebelopsio/boundary/releases).

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/rebelopsio/boundary/compare/v0.12.0...v0.13.0) (2026-02-21)
+
+
+### Features
+
+* progress tracking scenarios ([#57](https://github.com/rebelopsio/boundary/issues/57)) ([da053fb](https://github.com/rebelopsio/boundary/commit/da053fb43b5f9f25f1e41591e15fe83d0faa8b4b))
+
 ## [0.12.0](https://github.com/rebelopsio/boundary/compare/v0.11.0...v0.12.0) (2026-02-20)
 
 

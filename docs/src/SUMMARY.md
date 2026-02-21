@@ -14,6 +14,7 @@
 - [Architecture Modes](./features/architecture-modes.md)
 - [Monorepo Support](./features/monorepo-support.md)
 - [CI Integration](./features/ci-integration.md)
+- [Editor Integration](./features/editor-integration.md)
 
 # Reference
 

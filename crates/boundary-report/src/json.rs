@@ -107,6 +107,7 @@ mod tests {
             dependency_count: 3,
             files_analyzed: 5,
             metrics: None,
+            package_metrics: vec![],
         }
     }
 

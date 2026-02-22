@@ -313,6 +313,7 @@ mod tests {
             dependency_count: 0,
             files_analyzed: 1,
             metrics: None,
+            package_metrics: vec![],
         }
     }
 
@@ -330,6 +331,7 @@ mod tests {
             dependency_count: 0,
             files_analyzed: 0,
             metrics: None,
+            package_metrics: vec![],
         }
     }
 
@@ -347,6 +349,7 @@ mod tests {
             dependency_count: 0,
             files_analyzed: 3,
             metrics: None,
+            package_metrics: vec![],
         }
     }
 
@@ -393,6 +396,7 @@ mod tests {
                     unclassified_paths: vec![],
                 }),
             }),
+            package_metrics: vec![],
         }
     }
 

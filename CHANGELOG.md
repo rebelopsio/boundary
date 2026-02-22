@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/rebelopsio/boundary/compare/v0.13.0...v0.14.0) (2026-02-22)
+
+
+### Features
+
+* **rcm:** FR-26 R.C. Martin package metrics (I, A, D) ([#60](https://github.com/rebelopsio/boundary/issues/60)) ([3843dd1](https://github.com/rebelopsio/boundary/commit/3843dd1eaf8e2da033970bbaed6614d8cad7fb2f))
+
 ## [0.13.0](https://github.com/rebelopsio/boundary/compare/v0.12.0...v0.13.0) (2026-02-21)
 
 

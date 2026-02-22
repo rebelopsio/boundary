@@ -630,6 +630,7 @@ fn run_analysis(
     let mut total_deps = 0usize;
     let mut total_files = 0usize;
     let mut all_components = Vec::new();
+    let mut all_dependencies: Vec<boundary_core::types::Dependency> = Vec::new();
 
     // Load cache if incremental
     let mut cache = if incremental {
@@ -850,6 +851,7 @@ fn run_analysis(
                 graph.ensure_node_with_mode(&dep.from, *from_layer, *is_cc, *arch_mode);
                 graph.ensure_node(&dep.to, *to_layer, *to_is_cc);
                 graph.add_dependency(dep);
+                all_dependencies.push(dep.clone());
             }
             total_deps += fr.dependencies.len();
         }
@@ -938,6 +940,13 @@ fn run_analysis(
         graph.mark_external(id);
     }
 
-    let result = metrics::build_result(&graph, config, total_deps, &all_components, total_files);
+    let result = metrics::build_result(
+        &graph,
+        config,
+        total_deps,
+        &all_components,
+        total_files,
+        &all_dependencies,
+    );
     Ok(FullAnalysis { result, graph })
 }

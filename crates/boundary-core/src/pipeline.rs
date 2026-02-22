@@ -218,6 +218,7 @@ impl AnalysisPipeline {
             total_deps,
             &all_components,
             total_files,
+            &all_dependencies,
         );
         Ok(FullAnalysis {
             result,
@@ -475,6 +476,7 @@ impl AnalysisPipeline {
             total_deps,
             &all_components,
             total_files,
+            &all_dependencies,
         );
         Ok(FullAnalysis {
             result,

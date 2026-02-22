@@ -6,7 +6,8 @@ use crate::config::Config;
 use crate::graph::DependencyGraph;
 use crate::metrics_report::{ClassificationCoverage, DependencyDepthMetrics, MetricsReport};
 use crate::types::{
-    ArchLayer, ArchitectureMode, Component, ComponentKind, Severity, Violation, ViolationKind,
+    ArchLayer, ArchitectureMode, Component, ComponentKind, Dependency, Severity, Violation,
+    ViolationKind,
 };
 
 /// Result for a single service in a multi-service analysis.
@@ -47,6 +48,7 @@ pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
             dependency_count: 0,
             files_analyzed: 0,
             metrics: None,
+            package_metrics: vec![],
         };
     }
 
@@ -91,6 +93,7 @@ pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
         dependency_count: total_deps,
         files_analyzed: total_files,
         metrics: None,
+        package_metrics: vec![],
     }
 }
 
@@ -102,6 +105,20 @@ pub struct ArchitectureScore {
     pub layer_isolation: f64,
     pub dependency_direction: f64,
     pub interface_coverage: f64,
+}
+
+/// R.C. Martin package-level coupling metrics (Instability, Abstractness, Distance).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackageMetric {
+    /// Short package name (last directory segment).
+    pub package: String,
+    /// Abstractness A = Na / Nc, rounded to 2 decimal places.
+    pub abstractness: f64,
+    /// Instability I = Ce / (Ca + Ce), rounded to 2 decimal places.
+    /// Special case: Ca + Ce = 0 → I = 0.0 (defined, not undefined).
+    pub instability: f64,
+    /// Distance from main sequence D = |A + I - 1|, rounded to 2 decimal places.
+    pub distance: f64,
 }
 
 /// Full analysis result.
@@ -116,6 +133,10 @@ pub struct AnalysisResult {
     pub files_analyzed: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics: Option<MetricsReport>,
+    /// R.C. Martin package metrics (Instability, Abstractness, Distance).
+    /// Packages with Nc = 0 are excluded. Present only when there are packages to report.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub package_metrics: Vec<PackageMetric>,
 }
 
 /// Calculate architecture score from the dependency graph.
@@ -677,11 +698,13 @@ pub fn build_result(
     dep_count: usize,
     components: &[Component],
     files_analyzed: usize,
+    dependencies: &[Dependency],
 ) -> AnalysisResult {
     let score = calculate_score(graph, config);
     let violations = detect_violations(graph, config);
 
     let metrics = compute_metrics(graph, components, &violations);
+    let package_metrics = compute_package_metrics(components, dependencies);
 
     AnalysisResult {
         score,
@@ -690,6 +713,7 @@ pub fn build_result(
         dependency_count: dep_count,
         files_analyzed,
         metrics: Some(metrics),
+        package_metrics,
     }
 }
 
@@ -816,6 +840,142 @@ fn compute_classification_coverage(graph: &DependencyGraph) -> ClassificationCov
     }
 }
 
+/// Compute R.C. Martin package metrics (Instability, Abstractness, Distance) per package.
+///
+/// Packages are identified by the last directory segment of their path.
+/// Internal coupling is detected by matching the last segment of each import path
+/// against known source package names (suffix matching).
+///
+/// Special cases:
+///   - Nc = 0 → package excluded from output entirely
+///   - Ca + Ce = 0 → I = 0.0 (defined, not undefined)
+fn compute_package_metrics(
+    components: &[Component],
+    dependencies: &[Dependency],
+) -> Vec<PackageMetric> {
+    use std::collections::HashSet;
+
+    // Step 1: identify source package paths from real components.
+    // Package path is everything before "::" in ComponentId.0.
+    let mut pkg_full_paths: HashSet<String> = HashSet::new();
+    for comp in components {
+        let full_pkg = pkg_from_id(&comp.id.0);
+        if !full_pkg.is_empty() {
+            pkg_full_paths.insert(full_pkg.to_string());
+        }
+    }
+
+    // Build a map: short name (last path segment) → full package path.
+    // If two packages share a short name we keep the first and skip the rest.
+    let mut short_to_full: HashMap<String, String> = HashMap::new();
+    for full in &pkg_full_paths {
+        let short = last_segment(full).to_string();
+        short_to_full.entry(short).or_insert_with(|| full.clone());
+    }
+    // Reverse map for coupling computation: full path → short name.
+    let full_to_short: HashMap<String, String> = short_to_full
+        .iter()
+        .map(|(s, f)| (f.clone(), s.clone()))
+        .collect();
+
+    // Step 2: count abstract types (Na) and total components (Nc) per package.
+    // Key = short package name.
+    let mut na: HashMap<String, usize> = HashMap::new();
+    let mut nc: HashMap<String, usize> = HashMap::new();
+    for comp in components {
+        let full_pkg = pkg_from_id(&comp.id.0);
+        let Some(short) = full_to_short.get(full_pkg) else {
+            continue;
+        };
+        *nc.entry(short.clone()).or_insert(0) += 1;
+        if matches!(comp.kind, ComponentKind::Port(_)) {
+            *na.entry(short.clone()).or_insert(0) += 1;
+        }
+    }
+
+    // Step 3: compute efferent (Ce) and afferent (Ca) coupling per package.
+    // Ce[X] = number of distinct internal packages X imports.
+    // Ca[X] = number of distinct internal packages that import X.
+    // We count unique (from_pkg, to_pkg) pairs to avoid double-counting.
+    let mut ce_pairs: HashSet<(String, String)> = HashSet::new();
+    let mut ca_pairs: HashSet<(String, String)> = HashSet::new();
+
+    for dep in dependencies {
+        let from_full = pkg_from_id(&dep.from.0);
+        let Some(from_short) = full_to_short.get(from_full) else {
+            continue;
+        };
+        let to_short = dep
+            .import_path
+            .as_deref()
+            .map(last_segment)
+            .and_then(|s| short_to_full.contains_key(s).then_some(s));
+        let Some(to_short) = to_short else {
+            continue;
+        };
+        if from_short == to_short {
+            continue; // intra-package dependency
+        }
+        ce_pairs.insert((from_short.clone(), to_short.to_string()));
+        ca_pairs.insert((to_short.to_string(), from_short.clone()));
+    }
+
+    let mut ce: HashMap<String, usize> = HashMap::new();
+    let mut ca: HashMap<String, usize> = HashMap::new();
+    for (from, to) in &ce_pairs {
+        *ce.entry(from.clone()).or_insert(0) += 1;
+        let _ = to; // counted via ca_pairs below
+    }
+    for (to, from) in &ca_pairs {
+        *ca.entry(to.clone()).or_insert(0) += 1;
+        let _ = from;
+    }
+
+    // Step 4: build PackageMetric for each package with Nc > 0.
+    let mut result: Vec<PackageMetric> = nc
+        .iter()
+        .filter(|(_, &n)| n > 0)
+        .map(|(short, &n)| {
+            let abstract_count = *na.get(short).unwrap_or(&0);
+            let ce_count = *ce.get(short).unwrap_or(&0);
+            let ca_count = *ca.get(short).unwrap_or(&0);
+
+            let a = abstract_count as f64 / n as f64;
+            let i = if ca_count + ce_count == 0 {
+                0.0
+            } else {
+                ce_count as f64 / (ca_count + ce_count) as f64
+            };
+            let d = (a + i - 1.0).abs();
+
+            PackageMetric {
+                package: short.clone(),
+                abstractness: round2(a),
+                instability: round2(i),
+                distance: round2(d),
+            }
+        })
+        .collect();
+
+    result.sort_by(|a, b| a.package.cmp(&b.package));
+    result
+}
+
+/// Extract the package portion of a ComponentId string ("pkg::name" → "pkg").
+fn pkg_from_id(id: &str) -> &str {
+    id.split("::").next().unwrap_or("")
+}
+
+/// Extract the last path segment from a path-like string.
+fn last_segment(path: &str) -> &str {
+    path.split('/').next_back().unwrap_or(path)
+}
+
+/// Round a float to 2 decimal places.
+fn round2(v: f64) -> f64 {
+    (v * 100.0).round() / 100.0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -937,7 +1097,7 @@ mod tests {
     fn test_build_result() {
         let graph = DependencyGraph::new();
         let config = Config::default();
-        let result = build_result(&graph, &config, 0, &[], 0);
+        let result = build_result(&graph, &config, 0, &[], 0, &[]);
         assert_eq!(result.component_count, 0);
         assert_eq!(result.dependency_count, 0);
         assert_eq!(result.files_analyzed, 0);

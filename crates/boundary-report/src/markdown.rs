@@ -287,6 +287,7 @@ mod tests {
             dependency_count: 2,
             files_analyzed: 3,
             metrics: None,
+            package_metrics: vec![],
         };
         let report = format_report(&result);
         assert!(report.contains("85.0/100"));
@@ -308,6 +309,7 @@ mod tests {
             dependency_count: 0,
             files_analyzed: 0,
             metrics: None,
+            package_metrics: vec![],
         };
         let (report, passed) = format_check(&result, Severity::Error);
         assert!(passed);

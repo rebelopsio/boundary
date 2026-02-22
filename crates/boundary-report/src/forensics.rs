@@ -225,26 +225,27 @@ pub fn format_forensics_report(analysis: &ForensicsAnalysis) -> String {
 
     // Architecture Conformance
     out.push_str("---\n\n## Architecture Conformance\n\n");
-    out.push_str(&format!(
-        "**Overall Score:** {:.1}/100\n\n",
-        analysis.score.overall
-    ));
-    out.push_str(&format!(
-        "- Structural Presence: {:.1}/100\n",
-        analysis.score.structural_presence
-    ));
-    out.push_str(&format!(
-        "- Layer Isolation: {:.1}/100\n",
-        analysis.score.layer_isolation
-    ));
-    out.push_str(&format!(
-        "- Dependency Direction: {:.1}/100\n",
-        analysis.score.dependency_direction
-    ));
-    out.push_str(&format!(
-        "- Interface Coverage: {:.1}/100\n\n",
-        analysis.score.interface_coverage
-    ));
+    if let Some(score) = &analysis.score {
+        out.push_str(&format!("**Overall Score:** {:.1}/100\n\n", score.overall));
+        out.push_str(&format!(
+            "- Structural Presence: {:.1}/100\n",
+            score.structural_presence
+        ));
+        out.push_str(&format!(
+            "- Layer Isolation: {:.1}/100\n",
+            score.layer_isolation
+        ));
+        out.push_str(&format!(
+            "- Dependency Direction: {:.1}/100\n",
+            score.dependency_direction
+        ));
+        out.push_str(&format!(
+            "- Interface Coverage: {:.1}/100\n\n",
+            score.interface_coverage
+        ));
+    } else {
+        out.push_str("Score not available (insufficient architectural signals detected).\n\n");
+    }
 
     // Violations
     out.push_str("### Violations\n\n");

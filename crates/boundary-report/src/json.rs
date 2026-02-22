@@ -95,19 +95,20 @@ mod tests {
         };
 
         AnalysisResult {
-            score: ArchitectureScore {
+            score: Some(ArchitectureScore {
                 overall: 75.0,
                 structural_presence: 100.0,
                 layer_isolation: 80.0,
                 dependency_direction: 70.0,
                 interface_coverage: 75.0,
-            },
+            }),
             violations,
             component_count: 5,
             dependency_count: 3,
             files_analyzed: 5,
             metrics: None,
             package_metrics: vec![],
+            pattern_detection: None,
         }
     }
 

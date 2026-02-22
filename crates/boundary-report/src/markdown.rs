@@ -7,30 +7,29 @@ pub fn format_report(result: &AnalysisResult) -> String {
 
     out.push_str("# Boundary - Architecture Analysis\n\n");
 
-    // Score summary
-    out.push_str("## Scores\n\n");
-    out.push_str("| Metric | Score |\n");
-    out.push_str("|--------|-------|\n");
-    out.push_str(&format!(
-        "| **Overall** | **{:.1}/100** |\n",
-        result.score.overall
-    ));
-    out.push_str(&format!(
-        "| Structural Presence | {:.1}/100 |\n",
-        result.score.structural_presence
-    ));
-    out.push_str(&format!(
-        "| Layer Isolation | {:.1}/100 |\n",
-        result.score.layer_isolation
-    ));
-    out.push_str(&format!(
-        "| Dependency Direction | {:.1}/100 |\n",
-        result.score.dependency_direction
-    ));
-    out.push_str(&format!(
-        "| Interface Coverage | {:.1}/100 |\n",
-        result.score.interface_coverage
-    ));
+    // Score summary (omitted when pattern-detection gate fails)
+    if let Some(score) = &result.score {
+        out.push_str("## Scores\n\n");
+        out.push_str("| Metric | Score |\n");
+        out.push_str("|--------|-------|\n");
+        out.push_str(&format!("| **Overall** | **{:.1}/100** |\n", score.overall));
+        out.push_str(&format!(
+            "| Structural Presence | {:.1}/100 |\n",
+            score.structural_presence
+        ));
+        out.push_str(&format!(
+            "| Layer Isolation | {:.1}/100 |\n",
+            score.layer_isolation
+        ));
+        out.push_str(&format!(
+            "| Dependency Direction | {:.1}/100 |\n",
+            score.dependency_direction
+        ));
+        out.push_str(&format!(
+            "| Interface Coverage | {:.1}/100 |\n",
+            score.interface_coverage
+        ));
+    }
 
     // Summary
     out.push_str(&format!(
@@ -157,39 +156,41 @@ pub fn format_multi_service_report(multi: &boundary_core::metrics::MultiServiceR
     out.push_str("|---------|---------|-----------|-----------|--------------------|\n");
 
     for svc in &multi.services {
+        let s = svc.result.score.as_ref();
         out.push_str(&format!(
             "| {} | {:.1} | {:.1} | {:.1} | {:.1} |\n",
             svc.service_name,
-            svc.result.score.overall,
-            svc.result.score.layer_isolation,
-            svc.result.score.dependency_direction,
-            svc.result.score.interface_coverage,
+            s.map(|s| s.overall).unwrap_or(0.0),
+            s.map(|s| s.layer_isolation).unwrap_or(0.0),
+            s.map(|s| s.dependency_direction).unwrap_or(0.0),
+            s.map(|s| s.interface_coverage).unwrap_or(0.0),
         ));
     }
 
     // Aggregate
+    let agg = multi.aggregate.score.as_ref();
     out.push_str("\n## Aggregate Score\n\n");
     out.push_str("| Metric | Score |\n");
     out.push_str("|--------|-------|\n");
     out.push_str(&format!(
         "| **Overall** | **{:.1}/100** |\n",
-        multi.aggregate.score.overall
+        agg.map(|s| s.overall).unwrap_or(0.0)
     ));
     out.push_str(&format!(
         "| Structural Presence | {:.1}/100 |\n",
-        multi.aggregate.score.structural_presence
+        agg.map(|s| s.structural_presence).unwrap_or(0.0)
     ));
     out.push_str(&format!(
         "| Layer Isolation | {:.1}/100 |\n",
-        multi.aggregate.score.layer_isolation
+        agg.map(|s| s.layer_isolation).unwrap_or(0.0)
     ));
     out.push_str(&format!(
         "| Dependency Direction | {:.1}/100 |\n",
-        multi.aggregate.score.dependency_direction
+        agg.map(|s| s.dependency_direction).unwrap_or(0.0)
     ));
     out.push_str(&format!(
         "| Interface Coverage | {:.1}/100 |\n",
-        multi.aggregate.score.interface_coverage
+        agg.map(|s| s.interface_coverage).unwrap_or(0.0)
     ));
 
     // Shared modules
@@ -275,19 +276,20 @@ mod tests {
     #[test]
     fn test_format_report_contains_score() {
         let result = AnalysisResult {
-            score: ArchitectureScore {
+            score: Some(ArchitectureScore {
                 overall: 85.0,
                 structural_presence: 100.0,
                 layer_isolation: 90.0,
                 dependency_direction: 80.0,
                 interface_coverage: 85.0,
-            },
+            }),
             violations: vec![],
             component_count: 3,
             dependency_count: 2,
             files_analyzed: 3,
             metrics: None,
             package_metrics: vec![],
+            pattern_detection: None,
         };
         let report = format_report(&result);
         assert!(report.contains("85.0/100"));
@@ -297,19 +299,20 @@ mod tests {
     #[test]
     fn test_format_check_passed() {
         let result = AnalysisResult {
-            score: ArchitectureScore {
+            score: Some(ArchitectureScore {
                 overall: 100.0,
                 structural_presence: 100.0,
                 layer_isolation: 100.0,
                 dependency_direction: 100.0,
                 interface_coverage: 100.0,
-            },
+            }),
             violations: vec![],
             component_count: 0,
             dependency_count: 0,
             files_analyzed: 0,
             metrics: None,
             package_metrics: vec![],
+            pattern_detection: None,
         };
         let (report, passed) = format_check(&result, Severity::Error);
         assert!(passed);

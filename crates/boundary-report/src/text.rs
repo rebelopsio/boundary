@@ -32,7 +32,12 @@ pub fn format_report(result: &AnalysisResult) -> String {
             "  Source files were found but no exported types could be extracted.\n  \
              Ensure types are exported (e.g. capitalized names in Go).\n",
         );
-    } else if result.score.structural_presence == 0.0 {
+    } else if result
+        .score
+        .as_ref()
+        .map(|s| s.structural_presence == 0.0)
+        .unwrap_or(false)
+    {
         // Components exist but none match a known DDD layer pattern
         out.push_str(&format!(
             "{}\n",
@@ -42,8 +47,15 @@ pub fn format_report(result: &AnalysisResult) -> String {
             "  Components were found but none match a known DDD layer pattern.\n  \
              Add layer path patterns to .boundary.toml to classify them.\n",
         );
-    } else {
-        out.push_str(&format_score_section(&result.score));
+    } else if let Some(score) = &result.score {
+        out.push_str(&format_score_section(score));
+        if let Some(pd) = &result.pattern_detection {
+            out.push_str(&format!(
+                "  Pattern: {} ({:.0}% confidence)\n",
+                pd.top_pattern,
+                pd.top_confidence * 100.0
+            ));
+        }
     }
 
     // Stats
@@ -108,7 +120,12 @@ pub fn format_report(result: &AnalysisResult) -> String {
     }
 
     // Violations — only claim "no violations" when we actually checked (layers were detected)
-    let no_layers = result.score.structural_presence == 0.0 && result.component_count > 0;
+    let no_layers = result
+        .score
+        .as_ref()
+        .map(|s| s.structural_presence == 0.0)
+        .unwrap_or(false)
+        && result.component_count > 0;
     if result.violations.is_empty() && !no_layers {
         out.push_str(&format!("\n{}\n", "No violations found!".green().bold()));
     } else if !result.violations.is_empty() {
@@ -231,16 +248,30 @@ pub fn format_multi_service_report(multi: &boundary_core::metrics::MultiServiceR
         out.push_str(&format!(
             "  {:<20} {:>7.1} {:>9.1} {:>9.1} {:>9.1}\n",
             svc.service_name,
-            svc.result.score.overall,
-            svc.result.score.layer_isolation,
-            svc.result.score.dependency_direction,
-            svc.result.score.interface_coverage,
+            svc.result.score.as_ref().map(|s| s.overall).unwrap_or(0.0),
+            svc.result
+                .score
+                .as_ref()
+                .map(|s| s.layer_isolation)
+                .unwrap_or(0.0),
+            svc.result
+                .score
+                .as_ref()
+                .map(|s| s.dependency_direction)
+                .unwrap_or(0.0),
+            svc.result
+                .score
+                .as_ref()
+                .map(|s| s.interface_coverage)
+                .unwrap_or(0.0),
         ));
     }
 
     // Aggregate
     out.push_str(&format!("\n{}\n", "Aggregate Score".bold()));
-    out.push_str(&format_score_section(&multi.aggregate.score));
+    if let Some(agg_score) = &multi.aggregate.score {
+        out.push_str(&format_score_section(agg_score));
+    }
 
     // Shared modules
     if !multi.shared_modules.is_empty() {
@@ -301,55 +332,58 @@ mod tests {
 
     fn zero_presence_result() -> AnalysisResult {
         AnalysisResult {
-            score: ArchitectureScore {
+            score: Some(ArchitectureScore {
                 overall: 0.0,
                 structural_presence: 0.0,
                 layer_isolation: 100.0,
                 dependency_direction: 100.0,
                 interface_coverage: 100.0,
-            },
+            }),
             violations: vec![],
             component_count: 2,
             dependency_count: 0,
             files_analyzed: 1,
             metrics: None,
             package_metrics: vec![],
+            pattern_detection: None,
         }
     }
 
     fn no_source_files_result() -> AnalysisResult {
         AnalysisResult {
-            score: ArchitectureScore {
+            score: Some(ArchitectureScore {
                 overall: 100.0,
                 structural_presence: 100.0,
                 layer_isolation: 100.0,
                 dependency_direction: 100.0,
                 interface_coverage: 100.0,
-            },
+            }),
             violations: vec![],
             component_count: 0,
             dependency_count: 0,
             files_analyzed: 0,
             metrics: None,
             package_metrics: vec![],
+            pattern_detection: None,
         }
     }
 
     fn no_components_result() -> AnalysisResult {
         AnalysisResult {
-            score: ArchitectureScore {
+            score: Some(ArchitectureScore {
                 overall: 100.0,
                 structural_presence: 100.0,
                 layer_isolation: 100.0,
                 dependency_direction: 100.0,
                 interface_coverage: 100.0,
-            },
+            }),
             violations: vec![],
             component_count: 0,
             dependency_count: 0,
             files_analyzed: 3,
             metrics: None,
             package_metrics: vec![],
+            pattern_detection: None,
         }
     }
 
@@ -365,13 +399,13 @@ mod tests {
         by_layer.insert("infrastructure".to_string(), 1usize);
 
         AnalysisResult {
-            score: ArchitectureScore {
+            score: Some(ArchitectureScore {
                 overall: 100.0,
                 structural_presence: 100.0,
                 layer_isolation: 100.0,
                 dependency_direction: 100.0,
                 interface_coverage: 100.0,
-            },
+            }),
             violations: vec![],
             component_count: 4,
             dependency_count: 0,
@@ -397,6 +431,7 @@ mod tests {
                 }),
             }),
             package_metrics: vec![],
+            pattern_detection: None,
         }
     }
 

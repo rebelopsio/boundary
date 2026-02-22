@@ -44,6 +44,7 @@ pub fn save_snapshot(project_path: &Path, result: &AnalysisResult) -> Result<()>
             files_analyzed: result.files_analyzed,
             metrics: result.metrics.clone(),
             package_metrics: result.package_metrics.clone(),
+            pattern_detection: result.pattern_detection.clone(),
         },
     };
 
@@ -79,10 +80,16 @@ pub fn check_regression(
         return Ok(None);
     };
 
+    let prev_overall = last.result.score.as_ref().map(|s| s.overall).unwrap_or(0.0);
+    let curr_overall = current_result
+        .score
+        .as_ref()
+        .map(|s| s.overall)
+        .unwrap_or(0.0);
     let trend = TrendReport {
-        previous_score: last.result.score.overall,
-        current_score: current_result.score.overall,
-        score_delta: current_result.score.overall - last.result.score.overall,
+        previous_score: prev_overall,
+        current_score: curr_overall,
+        score_delta: curr_overall - prev_overall,
         previous_violations: last.result.violations.len(),
         current_violations: current_result.violations.len(),
         violation_delta: current_result.violations.len() as i64
@@ -159,19 +166,20 @@ mod tests {
 
     fn sample_result(score: f64) -> AnalysisResult {
         AnalysisResult {
-            score: ArchitectureScore {
+            score: Some(ArchitectureScore {
                 overall: score,
                 structural_presence: 100.0,
                 layer_isolation: score,
                 dependency_direction: score,
                 interface_coverage: score,
-            },
+            }),
             violations: vec![],
             component_count: 5,
             dependency_count: 3,
             files_analyzed: 5,
             metrics: None,
             package_metrics: vec![],
+            pattern_detection: None,
         }
     }
 

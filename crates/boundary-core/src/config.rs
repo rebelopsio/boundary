@@ -132,10 +132,10 @@ impl Default for LayersConfig {
 /// Weights for scoring sub-components (should sum to ~1.0)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScoringConfig {
-    #[serde(default = "default_layer_weight")]
-    pub layer_isolation_weight: f64,
-    #[serde(default = "default_dep_weight")]
-    pub dependency_direction_weight: f64,
+    #[serde(default = "default_layer_weight", alias = "layer_isolation_weight")]
+    pub layer_conformance_weight: f64,
+    #[serde(default = "default_dep_weight", alias = "dependency_direction_weight")]
+    pub dependency_compliance_weight: f64,
     #[serde(default = "default_interface_weight")]
     pub interface_coverage_weight: f64,
 }
@@ -153,8 +153,8 @@ fn default_interface_weight() -> f64 {
 impl Default for ScoringConfig {
     fn default() -> Self {
         Self {
-            layer_isolation_weight: default_layer_weight(),
-            dependency_direction_weight: default_dep_weight(),
+            layer_conformance_weight: default_layer_weight(),
+            dependency_compliance_weight: default_dep_weight(),
             interface_coverage_weight: default_interface_weight(),
         }
     }
@@ -295,8 +295,8 @@ presentation = ["**/presentation/**", "**/handler/**", "**/api/**", "**/cmd/**"]
 
 [scoring]
 # Weights for score components (should sum to 1.0)
-layer_isolation_weight = 0.4
-dependency_direction_weight = 0.4
+layer_conformance_weight = 0.4
+dependency_compliance_weight = 0.4
 interface_coverage_weight = 0.2
 
 [rules]
@@ -326,7 +326,7 @@ mod tests {
             "default should be empty for auto-detection"
         );
         assert!(!config.layers.domain.is_empty());
-        assert!((config.scoring.layer_isolation_weight - 0.4).abs() < f64::EPSILON);
+        assert!((config.scoring.layer_conformance_weight - 0.4).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -342,8 +342,8 @@ infrastructure = ["**/infra/**"]
 presentation = ["**/web/**"]
 
 [scoring]
-layer_isolation_weight = 0.5
-dependency_direction_weight = 0.3
+layer_conformance_weight = 0.5
+dependency_compliance_weight = 0.3
 interface_coverage_weight = 0.2
 
 [rules]

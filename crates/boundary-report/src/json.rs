@@ -98,8 +98,8 @@ mod tests {
             score: Some(ArchitectureScore {
                 overall: 75.0,
                 structural_presence: 100.0,
-                layer_isolation: 80.0,
-                dependency_direction: 70.0,
+                layer_conformance: 80.0,
+                dependency_compliance: 70.0,
                 interface_coverage: 75.0,
             }),
             violations,

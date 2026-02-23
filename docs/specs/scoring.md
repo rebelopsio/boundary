@@ -1,7 +1,7 @@
 # Boundary Scoring Specification
 
 **Version:** 0.1
-**Status:** Draft
+**Status:** Active
 
 ---
 

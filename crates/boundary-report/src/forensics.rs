@@ -232,12 +232,12 @@ pub fn format_forensics_report(analysis: &ForensicsAnalysis) -> String {
             score.structural_presence
         ));
         out.push_str(&format!(
-            "- Layer Isolation: {:.1}/100\n",
-            score.layer_isolation
+            "- Layer Conformance: {:.1}/100\n",
+            score.layer_conformance
         ));
         out.push_str(&format!(
-            "- Dependency Direction: {:.1}/100\n",
-            score.dependency_direction
+            "- Dependency Compliance: {:.1}/100\n",
+            score.dependency_compliance
         ));
         out.push_str(&format!(
             "- Interface Coverage: {:.1}/100\n\n",

@@ -169,8 +169,8 @@ mod tests {
             score: Some(ArchitectureScore {
                 overall: score,
                 structural_presence: 100.0,
-                layer_isolation: score,
-                dependency_direction: score,
+                layer_conformance: score,
+                dependency_compliance: score,
                 interface_coverage: score,
             }),
             violations: vec![],

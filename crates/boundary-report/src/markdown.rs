@@ -18,12 +18,12 @@ pub fn format_report(result: &AnalysisResult) -> String {
             score.structural_presence
         ));
         out.push_str(&format!(
-            "| Layer Isolation | {:.1}/100 |\n",
-            score.layer_isolation
+            "| Layer Conformance | {:.1}/100 |\n",
+            score.layer_conformance
         ));
         out.push_str(&format!(
-            "| Dependency Direction | {:.1}/100 |\n",
-            score.dependency_direction
+            "| Dependency Compliance | {:.1}/100 |\n",
+            score.dependency_compliance
         ));
         out.push_str(&format!(
             "| Interface Coverage | {:.1}/100 |\n",
@@ -152,8 +152,8 @@ pub fn format_multi_service_report(multi: &boundary_core::metrics::MultiServiceR
 
     // Per-service score table
     out.push_str("## Per-Service Scores\n\n");
-    out.push_str("| Service | Overall | Isolation | Direction | Interface Coverage |\n");
-    out.push_str("|---------|---------|-----------|-----------|--------------------|\n");
+    out.push_str("| Service | Overall | Conformance | Compliance | Interface Coverage |\n");
+    out.push_str("|---------|---------|-------------|------------|--------------------|\n");
 
     for svc in &multi.services {
         let s = svc.result.score.as_ref();
@@ -161,8 +161,8 @@ pub fn format_multi_service_report(multi: &boundary_core::metrics::MultiServiceR
             "| {} | {:.1} | {:.1} | {:.1} | {:.1} |\n",
             svc.service_name,
             s.map(|s| s.overall).unwrap_or(0.0),
-            s.map(|s| s.layer_isolation).unwrap_or(0.0),
-            s.map(|s| s.dependency_direction).unwrap_or(0.0),
+            s.map(|s| s.layer_conformance).unwrap_or(0.0),
+            s.map(|s| s.dependency_compliance).unwrap_or(0.0),
             s.map(|s| s.interface_coverage).unwrap_or(0.0),
         ));
     }
@@ -181,12 +181,12 @@ pub fn format_multi_service_report(multi: &boundary_core::metrics::MultiServiceR
         agg.map(|s| s.structural_presence).unwrap_or(0.0)
     ));
     out.push_str(&format!(
-        "| Layer Isolation | {:.1}/100 |\n",
-        agg.map(|s| s.layer_isolation).unwrap_or(0.0)
+        "| Layer Conformance | {:.1}/100 |\n",
+        agg.map(|s| s.layer_conformance).unwrap_or(0.0)
     ));
     out.push_str(&format!(
-        "| Dependency Direction | {:.1}/100 |\n",
-        agg.map(|s| s.dependency_direction).unwrap_or(0.0)
+        "| Dependency Compliance | {:.1}/100 |\n",
+        agg.map(|s| s.dependency_compliance).unwrap_or(0.0)
     ));
     out.push_str(&format!(
         "| Interface Coverage | {:.1}/100 |\n",
@@ -279,8 +279,8 @@ mod tests {
             score: Some(ArchitectureScore {
                 overall: 85.0,
                 structural_presence: 100.0,
-                layer_isolation: 90.0,
-                dependency_direction: 80.0,
+                layer_conformance: 90.0,
+                dependency_compliance: 80.0,
                 interface_coverage: 85.0,
             }),
             violations: vec![],
@@ -302,8 +302,8 @@ mod tests {
             score: Some(ArchitectureScore {
                 overall: 100.0,
                 structural_presence: 100.0,
-                layer_isolation: 100.0,
-                dependency_direction: 100.0,
+                layer_conformance: 100.0,
+                dependency_compliance: 100.0,
                 interface_coverage: 100.0,
             }),
             violations: vec![],

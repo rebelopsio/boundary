@@ -1,0 +1,5 @@
+[[layers.overrides]]
+scope = "services/auth/**"
+domain = ["services/auth/core/**"]
+application = ["services/auth/app/**"]
+infrastructure = ["services/auth/server/**"]

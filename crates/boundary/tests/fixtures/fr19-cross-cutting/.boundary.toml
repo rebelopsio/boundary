@@ -1,0 +1,2 @@
+[layers]
+cross_cutting = ["pkg/logger/**"]

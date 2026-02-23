@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/rebelopsio/boundary/compare/v0.14.0...v0.15.0) (2026-02-23)
+
+
+### Features
+
+* pattern detection ([#62](https://github.com/rebelopsio/boundary/issues/62)) ([bf24ec7](https://github.com/rebelopsio/boundary/commit/bf24ec769be18853f18e32f6bfb8126089450347))
+
 ## [0.14.0](https://github.com/rebelopsio/boundary/compare/v0.13.0...v0.14.0) (2026-02-22)
 
 

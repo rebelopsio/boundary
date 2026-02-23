@@ -8,6 +8,7 @@ pub mod graph;
 pub mod layer;
 pub mod metrics;
 pub mod metrics_report;
+pub mod pattern_detection;
 pub mod pipeline;
 pub mod types;
 
@@ -16,4 +17,5 @@ pub use config::Config;
 pub use graph::DependencyGraph;
 pub use layer::LayerClassifier;
 pub use metrics::{AnalysisResult, ArchitectureScore};
+pub use pattern_detection::{PatternDetection, PatternScore};
 pub use types::*;

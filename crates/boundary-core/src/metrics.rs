@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::Config;
 use crate::graph::DependencyGraph;
 use crate::metrics_report::{ClassificationCoverage, DependencyDepthMetrics, MetricsReport};
+use crate::pattern_detection::{detect_patterns, PatternDetection};
 use crate::types::{
     ArchLayer, ArchitectureMode, Component, ComponentKind, Dependency, Severity, Violation,
     ViolationKind,
@@ -36,19 +37,20 @@ pub struct SharedModule {
 pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
     if services.is_empty() {
         return AnalysisResult {
-            score: ArchitectureScore {
+            score: Some(ArchitectureScore {
                 overall: 100.0,
                 structural_presence: 100.0,
                 layer_isolation: 100.0,
                 dependency_direction: 100.0,
                 interface_coverage: 100.0,
-            },
+            }),
             violations: vec![],
             component_count: 0,
             dependency_count: 0,
             files_analyzed: 0,
             metrics: None,
             package_metrics: vec![],
+            pattern_detection: None,
         };
     }
 
@@ -65,11 +67,13 @@ pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
     if total_components > 0 {
         for s in services {
             let weight = s.result.component_count as f64 / total_components as f64;
-            overall += s.result.score.overall * weight;
-            structural_presence += s.result.score.structural_presence * weight;
-            layer_isolation += s.result.score.layer_isolation * weight;
-            dependency_direction += s.result.score.dependency_direction * weight;
-            interface_coverage += s.result.score.interface_coverage * weight;
+            if let Some(sc) = &s.result.score {
+                overall += sc.overall * weight;
+                structural_presence += sc.structural_presence * weight;
+                layer_isolation += sc.layer_isolation * weight;
+                dependency_direction += sc.dependency_direction * weight;
+                interface_coverage += sc.interface_coverage * weight;
+            }
         }
     }
 
@@ -81,19 +85,20 @@ pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
     let total_files: usize = services.iter().map(|s| s.result.files_analyzed).sum();
 
     AnalysisResult {
-        score: ArchitectureScore {
+        score: Some(ArchitectureScore {
             overall,
             structural_presence,
             layer_isolation,
             dependency_direction,
             interface_coverage,
-        },
+        }),
         violations: all_violations,
         component_count: total_components,
         dependency_count: total_deps,
         files_analyzed: total_files,
         metrics: None,
         package_metrics: vec![],
+        pattern_detection: None,
     }
 }
 
@@ -124,7 +129,12 @@ pub struct PackageMetric {
 /// Full analysis result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalysisResult {
-    pub score: ArchitectureScore,
+    /// DDD architecture score.
+    /// `None` when the pattern-detection gate fails (top_confidence < 0.5),
+    /// meaning the codebase does not match any recognized pattern well enough
+    /// for DDD scores to be meaningful.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub score: Option<ArchitectureScore>,
     pub violations: Vec<Violation>,
     pub component_count: usize,
     pub dependency_count: usize,
@@ -137,6 +147,9 @@ pub struct AnalysisResult {
     /// Packages with Nc = 0 are excluded. Present only when there are packages to report.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub package_metrics: Vec<PackageMetric>,
+    /// Pattern detection result (confidence distribution across architectural patterns).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern_detection: Option<PatternDetection>,
 }
 
 /// Calculate architecture score from the dependency graph.
@@ -692,6 +705,10 @@ fn calculate_interface_coverage(graph: &DependencyGraph) -> f64 {
 }
 
 /// Build a complete `AnalysisResult`.
+///
+/// The `score` field is gated by pattern detection:
+///   - top_confidence ≥ 0.5 → `score` is `Some(...)` (DDD scores are meaningful)
+///   - top_confidence < 0.5 → `score` is `None`   (pattern unclear, scores suppressed)
 pub fn build_result(
     graph: &DependencyGraph,
     config: &Config,
@@ -700,11 +717,17 @@ pub fn build_result(
     files_analyzed: usize,
     dependencies: &[Dependency],
 ) -> AnalysisResult {
-    let score = calculate_score(graph, config);
+    let architecture_score = calculate_score(graph, config);
     let violations = detect_violations(graph, config);
-
     let metrics = compute_metrics(graph, components, &violations);
     let package_metrics = compute_package_metrics(components, dependencies);
+    let pattern_detection = detect_patterns(components, dependencies);
+
+    let score = if pattern_detection.top_confidence >= 0.5 {
+        Some(architecture_score)
+    } else {
+        None
+    };
 
     AnalysisResult {
         score,
@@ -714,6 +737,7 @@ pub fn build_result(
         files_analyzed,
         metrics: Some(metrics),
         package_metrics,
+        pattern_detection: Some(pattern_detection),
     }
 }
 
@@ -1103,6 +1127,7 @@ mod tests {
         assert_eq!(result.files_analyzed, 0);
         assert!(result.violations.is_empty());
         assert!(result.metrics.is_some());
+        assert!(result.pattern_detection.is_some());
     }
 
     fn make_cross_cutting_component(id: &str, name: &str, layer: Option<ArchLayer>) -> Component {

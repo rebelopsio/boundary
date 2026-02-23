@@ -17,7 +17,7 @@ pub struct ForensicsAnalysis {
     pub application_services: Vec<Component>,
     pub infrastructure_adapters: Vec<AdapterMapping>,
     pub violations: Vec<Violation>,
-    pub score: ArchitectureScore,
+    pub score: Option<ArchitectureScore>,
     pub classified_imports: Vec<ClassifiedImport>,
     pub improvements: Vec<String>,
 }

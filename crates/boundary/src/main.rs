@@ -249,7 +249,7 @@ fn cmd_analyze(
 
         if score_only {
             for svc in &multi.services {
-                print_score_only(&svc.service_name, &svc.result.score, format);
+                print_score_only(&svc.service_name, svc.result.score.as_ref(), format);
             }
             return Ok(());
         }
@@ -272,7 +272,7 @@ fn cmd_analyze(
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.to_string_lossy().into_owned());
-        print_score_only(&module_name, &analysis.result.score, format);
+        print_score_only(&module_name, analysis.result.score.as_ref(), format);
         return Ok(());
     }
 
@@ -285,23 +285,25 @@ fn cmd_analyze(
     Ok(())
 }
 
-fn print_score_only(module: &str, score: &metrics::ArchitectureScore, format: OutputFormat) {
+fn print_score_only(
+    module: &str,
+    score: Option<&metrics::ArchitectureScore>,
+    format: OutputFormat,
+) {
+    let overall = score.map(|s| s.overall).unwrap_or(0.0);
+    let presence = score.map(|s| s.structural_presence).unwrap_or(0.0);
+    let layer = score.map(|s| s.layer_isolation).unwrap_or(0.0);
+    let direction = score.map(|s| s.dependency_direction).unwrap_or(0.0);
+    let iface = score.map(|s| s.interface_coverage).unwrap_or(0.0);
     match format {
         OutputFormat::Json => {
             println!(
-                "{{\"module\":\"{}\",\"overall\":{:.1},\"structural_presence\":{:.1},\"layer_isolation\":{:.1},\"dependency_direction\":{:.1},\"interface_coverage\":{:.1}}}",
-                module, score.overall, score.structural_presence, score.layer_isolation, score.dependency_direction, score.interface_coverage
+                "{{\"module\":\"{module}\",\"overall\":{overall:.1},\"structural_presence\":{presence:.1},\"layer_isolation\":{layer:.1},\"dependency_direction\":{direction:.1},\"interface_coverage\":{iface:.1}}}"
             );
         }
         OutputFormat::Text | OutputFormat::Markdown => {
             println!(
-                "{}: {:.1}/100 (Presence: {:.1}, Layer: {:.1}, Deps: {:.1}, Interfaces: {:.1})",
-                module,
-                score.overall,
-                score.structural_presence,
-                score.layer_isolation,
-                score.dependency_direction,
-                score.interface_coverage
+                "{module}: {overall:.1}/100 (Presence: {presence:.1}, Layer: {layer:.1}, Deps: {direction:.1}, Interfaces: {iface:.1})"
             );
         }
     }

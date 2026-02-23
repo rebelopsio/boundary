@@ -203,12 +203,12 @@ fn format_score_section(score: &boundary_core::metrics::ArchitectureScore) -> St
         score.structural_presence.round() as i64
     ));
     out.push_str(&format!(
-        "  Layer Isolation: {}%\n",
-        score.layer_isolation.round() as i64
+        "  Layer Conformance: {}%\n",
+        score.layer_conformance.round() as i64
     ));
     out.push_str(&format!(
-        "  Dependency Direction: {}%\n",
-        score.dependency_direction.round() as i64
+        "  Dependency Compliance: {}%\n",
+        score.dependency_compliance.round() as i64
     ));
     out.push_str(&format!(
         "  Interface Coverage: {}%\n",
@@ -239,25 +239,25 @@ pub fn format_multi_service_report(multi: &boundary_core::metrics::MultiServiceR
     // Per-service score table
     out.push_str(&format!("{}\n", "Per-Service Scores".bold()));
     out.push_str(&format!(
-        "  {:<20} {:>8} {:>10} {:>10} {:>10}\n",
-        "Service", "Overall", "Isolation", "Direction", "Iface Cov"
+        "  {:<20} {:>8} {:>12} {:>12} {:>10}\n",
+        "Service", "Overall", "Conformance", "Compliance", "Iface Cov"
     ));
-    out.push_str(&format!("  {}\n", "-".repeat(62)));
+    out.push_str(&format!("  {}\n", "-".repeat(66)));
 
     for svc in &multi.services {
         out.push_str(&format!(
-            "  {:<20} {:>7.1} {:>9.1} {:>9.1} {:>9.1}\n",
+            "  {:<20} {:>7.1} {:>11.1} {:>11.1} {:>9.1}\n",
             svc.service_name,
             svc.result.score.as_ref().map(|s| s.overall).unwrap_or(0.0),
             svc.result
                 .score
                 .as_ref()
-                .map(|s| s.layer_isolation)
+                .map(|s| s.layer_conformance)
                 .unwrap_or(0.0),
             svc.result
                 .score
                 .as_ref()
-                .map(|s| s.dependency_direction)
+                .map(|s| s.dependency_compliance)
                 .unwrap_or(0.0),
             svc.result
                 .score
@@ -335,8 +335,8 @@ mod tests {
             score: Some(ArchitectureScore {
                 overall: 0.0,
                 structural_presence: 0.0,
-                layer_isolation: 100.0,
-                dependency_direction: 100.0,
+                layer_conformance: 100.0,
+                dependency_compliance: 100.0,
                 interface_coverage: 100.0,
             }),
             violations: vec![],
@@ -354,8 +354,8 @@ mod tests {
             score: Some(ArchitectureScore {
                 overall: 100.0,
                 structural_presence: 100.0,
-                layer_isolation: 100.0,
-                dependency_direction: 100.0,
+                layer_conformance: 100.0,
+                dependency_compliance: 100.0,
                 interface_coverage: 100.0,
             }),
             violations: vec![],
@@ -373,8 +373,8 @@ mod tests {
             score: Some(ArchitectureScore {
                 overall: 100.0,
                 structural_presence: 100.0,
-                layer_isolation: 100.0,
-                dependency_direction: 100.0,
+                layer_conformance: 100.0,
+                dependency_compliance: 100.0,
                 interface_coverage: 100.0,
             }),
             violations: vec![],
@@ -402,8 +402,8 @@ mod tests {
             score: Some(ArchitectureScore {
                 overall: 100.0,
                 structural_presence: 100.0,
-                layer_isolation: 100.0,
-                dependency_direction: 100.0,
+                layer_conformance: 100.0,
+                dependency_compliance: 100.0,
                 interface_coverage: 100.0,
             }),
             violations: vec![],

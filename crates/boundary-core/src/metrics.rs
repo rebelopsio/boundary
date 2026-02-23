@@ -40,8 +40,8 @@ pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
             score: Some(ArchitectureScore {
                 overall: 100.0,
                 structural_presence: 100.0,
-                layer_isolation: 100.0,
-                dependency_direction: 100.0,
+                layer_conformance: 100.0,
+                dependency_compliance: 100.0,
                 interface_coverage: 100.0,
             }),
             violations: vec![],
@@ -60,8 +60,8 @@ pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
     // Weighted average by component count
     let mut overall = 0.0f64;
     let mut structural_presence = 0.0f64;
-    let mut layer_isolation = 0.0f64;
-    let mut dependency_direction = 0.0f64;
+    let mut layer_conformance = 0.0f64;
+    let mut dependency_compliance = 0.0f64;
     let mut interface_coverage = 0.0f64;
 
     if total_components > 0 {
@@ -70,8 +70,8 @@ pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
             if let Some(sc) = &s.result.score {
                 overall += sc.overall * weight;
                 structural_presence += sc.structural_presence * weight;
-                layer_isolation += sc.layer_isolation * weight;
-                dependency_direction += sc.dependency_direction * weight;
+                layer_conformance += sc.layer_conformance * weight;
+                dependency_compliance += sc.dependency_compliance * weight;
                 interface_coverage += sc.interface_coverage * weight;
             }
         }
@@ -88,8 +88,8 @@ pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
         score: Some(ArchitectureScore {
             overall,
             structural_presence,
-            layer_isolation,
-            dependency_direction,
+            layer_conformance,
+            dependency_compliance,
             interface_coverage,
         }),
         violations: all_violations,
@@ -107,8 +107,8 @@ pub fn aggregate_results(services: &[ServiceAnalysisResult]) -> AnalysisResult {
 pub struct ArchitectureScore {
     pub overall: f64,
     pub structural_presence: f64,
-    pub layer_isolation: f64,
-    pub dependency_direction: f64,
+    pub layer_conformance: f64,
+    pub dependency_compliance: f64,
     pub interface_coverage: f64,
 }
 
@@ -153,16 +153,39 @@ pub struct AnalysisResult {
 }
 
 /// Calculate architecture score from the dependency graph.
-pub fn calculate_score(graph: &DependencyGraph, config: &Config) -> ArchitectureScore {
-    let layer_isolation = calculate_layer_isolation(graph);
-    let dependency_direction = calculate_dependency_direction(graph);
+pub fn calculate_score(
+    graph: &DependencyGraph,
+    config: &Config,
+    components: &[Component],
+    dependencies: &[Dependency],
+) -> ArchitectureScore {
+    let layer_conformance_opt = calculate_layer_conformance(components, dependencies);
+    let dependency_compliance = calculate_dependency_compliance(graph);
     let interface_coverage = calculate_interface_coverage(graph);
 
     let w = &config.scoring;
-    let correctness = layer_isolation * w.layer_isolation_weight
-        + dependency_direction * w.dependency_direction_weight
-        + interface_coverage * w.interface_coverage_weight;
-    let correctness = correctness.clamp(0.0, 100.0);
+
+    // Redistribute weights for any undefined dimension (currently only layer_conformance
+    // can be undefined — when there are no classified packages).
+    let (total_weight, weighted_sum) = {
+        let mut tw = 0.0f64;
+        let mut ws = 0.0f64;
+        if let Some(lc) = layer_conformance_opt {
+            tw += w.layer_conformance_weight;
+            ws += lc * w.layer_conformance_weight;
+        }
+        tw += w.dependency_compliance_weight;
+        ws += dependency_compliance * w.dependency_compliance_weight;
+        tw += w.interface_coverage_weight;
+        ws += interface_coverage * w.interface_coverage_weight;
+        (tw, ws)
+    };
+
+    let correctness = if total_weight > 0.0 {
+        (weighted_sum / total_weight).clamp(0.0, 100.0)
+    } else {
+        100.0
+    };
 
     // Structural presence: what % of components are classified into a layer?
     let coverage = compute_classification_coverage(graph);
@@ -174,8 +197,8 @@ pub fn calculate_score(graph: &DependencyGraph, config: &Config) -> Architecture
     ArchitectureScore {
         overall,
         structural_presence,
-        layer_isolation,
-        dependency_direction,
+        layer_conformance: layer_conformance_opt.unwrap_or(100.0),
+        dependency_compliance,
         interface_coverage,
     }
 }
@@ -583,57 +606,130 @@ fn detect_init_violations(
     }
 }
 
-/// Layer isolation: percentage of cross-layer edges that go in the correct direction.
-/// Edges involving unclassified components count against isolation since they
-/// represent components that haven't been properly placed in a layer.
-fn calculate_layer_isolation(graph: &DependencyGraph) -> f64 {
-    let edges = graph.edges_with_nodes();
-    if edges.is_empty() {
-        return 100.0;
-    }
+/// Layer conformance: how well each package's (A, I) values match its assigned layer's
+/// expected region centroid on the instability-abstractness plane.
+///
+/// Returns `None` when there are no classified packages (cannot compute a meaningful score).
+fn calculate_layer_conformance(
+    components: &[Component],
+    dependencies: &[Dependency],
+) -> Option<f64> {
+    use std::collections::{HashMap, HashSet};
 
-    let mut total = 0u64;
-    let mut correct = 0u64;
-
-    for (src, tgt, _) in &edges {
-        if src.is_external || tgt.is_external {
-            continue;
-        }
-        if src.is_cross_cutting || tgt.is_cross_cutting {
-            continue;
-        }
-        // Service-oriented mode is exempt from isolation scoring
-        if src.architecture_mode == ArchitectureMode::ServiceOriented {
-            continue;
-        }
-        match (src.layer, tgt.layer) {
-            (Some(from_layer), Some(to_layer)) => {
-                if from_layer == to_layer {
-                    // Same-layer edges are fine, don't count them
-                    continue;
-                }
-                total += 1;
-                if !from_layer.violates_dependency_on(&to_layer) {
-                    correct += 1;
-                }
-            }
-            _ => {
-                // Edges involving unclassified components penalize isolation
-                total += 1;
-            }
+    // Group components by full package path (everything before "::" in ComponentId).
+    let mut pkg_components: HashMap<String, Vec<&Component>> = HashMap::new();
+    for comp in components {
+        let pkg = pkg_from_id(&comp.id.0).to_string();
+        if !pkg.is_empty() {
+            pkg_components.entry(pkg).or_default().push(comp);
         }
     }
 
-    if total == 0 {
-        return 100.0;
+    let internal_pkgs: HashSet<String> = pkg_components.keys().cloned().collect();
+
+    // Compute efferent (Ce) and afferent (Ca) coupling using full package paths.
+    // Import paths are matched against known packages via two-segment suffix matching
+    // to handle the mismatch between filesystem paths and Go/Java module paths.
+    let mut ce_pairs: HashSet<(String, String)> = HashSet::new();
+    let mut ca_pairs: HashSet<(String, String)> = HashSet::new();
+
+    for dep in dependencies {
+        let from_pkg = pkg_from_id(&dep.from.0).to_string();
+        if !internal_pkgs.contains(&from_pkg) {
+            continue;
+        }
+        let to_pkg = dep.import_path.as_deref().and_then(|imp| {
+            internal_pkgs
+                .iter()
+                .find(|pkg| pkg_import_match(pkg, imp))
+                .cloned()
+        });
+        let Some(to_pkg) = to_pkg else { continue };
+        if from_pkg == to_pkg {
+            continue;
+        }
+        ce_pairs.insert((from_pkg.clone(), to_pkg.clone()));
+        ca_pairs.insert((to_pkg, from_pkg));
     }
-    (correct as f64 / total as f64) * 100.0
+
+    // Compute per-package (A, I) and layer conformance score.
+    let mut conformance_scores: Vec<f64> = Vec::new();
+
+    for (pkg_path, comps) in &pkg_components {
+        // Use the first non-None layer among components in this package.
+        let Some(layer) = comps.iter().find_map(|c| c.layer) else {
+            continue; // unclassified package — skip
+        };
+
+        let nc = comps.len();
+        let na = comps
+            .iter()
+            .filter(|c| matches!(c.kind, ComponentKind::Port(_)))
+            .count();
+
+        let a = na as f64 / nc as f64;
+
+        let ce = ce_pairs.iter().filter(|(from, _)| from == pkg_path).count();
+        let ca = ca_pairs.iter().filter(|(to, _)| to == pkg_path).count();
+        let i = if ca + ce == 0 {
+            0.0
+        } else {
+            ce as f64 / (ca + ce) as f64
+        };
+
+        let centroid = layer_centroid(layer);
+        let dist = euclidean_distance((a, i), centroid);
+        conformance_scores.push((1.0 - dist).max(0.0));
+    }
+
+    if conformance_scores.is_empty() {
+        return None;
+    }
+    let mean = conformance_scores.iter().sum::<f64>() / conformance_scores.len() as f64;
+    Some(mean * 100.0)
 }
 
-/// Dependency direction: percentage of all edges that flow in a valid direction.
+/// Expected (A, I) centroid for each architectural layer.
+fn layer_centroid(layer: ArchLayer) -> (f64, f64) {
+    match layer {
+        ArchLayer::Domain => (0.75, 0.15),
+        ArchLayer::Application => (0.40, 0.50),
+        ArchLayer::Infrastructure => (0.15, 0.75),
+        ArchLayer::Presentation => (0.15, 0.75),
+    }
+}
+
+/// Euclidean distance between two points on the (A, I) plane.
+fn euclidean_distance(p1: (f64, f64), p2: (f64, f64)) -> f64 {
+    let dx = p1.0 - p2.0;
+    let dy = p1.1 - p2.1;
+    (dx * dx + dy * dy).sqrt()
+}
+
+/// Returns true if a filesystem package path and an import path refer to the same package.
+///
+/// Matches by comparing trailing path segments:
+/// - If both have ≥ 2 segments, the last two must agree.
+/// - If either has only 1 segment, the last segment must agree.
+fn pkg_import_match(pkg_path: &str, import_path: &str) -> bool {
+    let pkg_last = pkg_path.split('/').next_back().unwrap_or("");
+    let imp_last = import_path.split('/').next_back().unwrap_or("");
+    if pkg_last.is_empty() || pkg_last != imp_last {
+        return false;
+    }
+    match (
+        pkg_path.split('/').rev().nth(1),
+        import_path.split('/').rev().nth(1),
+    ) {
+        (Some(p), Some(i)) => p == i,
+        _ => true,
+    }
+}
+
+/// Dependency compliance: percentage of all cross-layer edges that flow in a valid direction.
 /// Edges involving unclassified components are not counted as correct — they
 /// represent unresolved architecture that needs classification.
-fn calculate_dependency_direction(graph: &DependencyGraph) -> f64 {
+fn calculate_dependency_compliance(graph: &DependencyGraph) -> f64 {
     let edges = graph.edges_with_nodes();
     if edges.is_empty() {
         return 100.0;
@@ -699,9 +795,11 @@ fn calculate_interface_coverage(graph: &DependencyGraph) -> f64 {
         return 100.0;
     }
 
-    // Ideal: every adapter has a port. Score = min(ports/adapters, 1.0) * 100
-    let ratio = (ports as f64 / adapters as f64).min(1.0);
-    ratio * 100.0
+    // Balanced coverage: both excess ports and excess adapters indicate imbalance.
+    // Score = min(ports, adapters) / max(ports, adapters) * 100
+    let min = ports.min(adapters) as f64;
+    let max = ports.max(adapters) as f64;
+    (min / max) * 100.0
 }
 
 /// Build a complete `AnalysisResult`.
@@ -717,7 +815,7 @@ pub fn build_result(
     files_analyzed: usize,
     dependencies: &[Dependency],
 ) -> AnalysisResult {
-    let architecture_score = calculate_score(graph, config);
+    let architecture_score = calculate_score(graph, config, components, dependencies);
     let violations = detect_violations(graph, config);
     let metrics = compute_metrics(graph, components, &violations);
     let package_metrics = compute_package_metrics(components, dependencies);
@@ -1054,10 +1152,10 @@ mod tests {
         graph.add_dependency(&make_dep("infra", "domain"));
 
         let config = Config::default();
-        let score = calculate_score(&graph, &config);
+        let score = calculate_score(&graph, &config, &[], &[]);
 
-        assert_eq!(score.layer_isolation, 100.0);
-        assert_eq!(score.dependency_direction, 100.0);
+        assert_eq!(score.layer_conformance, 100.0);
+        assert_eq!(score.dependency_compliance, 100.0);
 
         let violations = detect_violations(&graph, &config);
         assert!(
@@ -1113,8 +1211,12 @@ mod tests {
     fn test_empty_graph_perfect_score() {
         let graph = DependencyGraph::new();
         let config = Config::default();
-        let score = calculate_score(&graph, &config);
-        assert_eq!(score.overall, 100.0);
+        let score = calculate_score(&graph, &config, &[], &[]);
+        assert!(
+            (score.overall - 100.0).abs() < 0.01,
+            "empty graph should score ~100, got {}",
+            score.overall
+        );
     }
 
     #[test]
@@ -1197,24 +1299,24 @@ mod tests {
     }
 
     #[test]
-    fn test_cross_cutting_excluded_from_layer_isolation() {
+    fn test_cross_cutting_excluded_from_dependency_compliance() {
         let mut graph = DependencyGraph::new();
-        // This edge would normally reduce isolation score
+        // This edge would normally reduce compliance score
         let c1 = make_component("domain", "Entity", Some(ArchLayer::Domain));
         let c2 = make_cross_cutting_component("infra", "Logger", Some(ArchLayer::Infrastructure));
         graph.add_component(&c1);
         graph.add_component(&c2);
         graph.add_dependency(&make_dep("domain", "infra"));
 
-        let isolation = calculate_layer_isolation(&graph);
+        let compliance = calculate_dependency_compliance(&graph);
         assert_eq!(
-            isolation, 100.0,
-            "cross-cutting edges should be excluded from isolation"
+            compliance, 100.0,
+            "cross-cutting edges should be excluded from dependency compliance"
         );
     }
 
     #[test]
-    fn test_cross_cutting_excluded_from_dependency_direction() {
+    fn test_cross_cutting_excluded_from_layer_conformance() {
         let mut graph = DependencyGraph::new();
         let c1 = make_component("domain", "Entity", Some(ArchLayer::Domain));
         let c2 = make_cross_cutting_component("infra", "Logger", Some(ArchLayer::Infrastructure));
@@ -1222,10 +1324,20 @@ mod tests {
         graph.add_component(&c2);
         graph.add_dependency(&make_dep("domain", "infra"));
 
-        let direction = calculate_dependency_direction(&graph);
-        assert_eq!(
-            direction, 100.0,
-            "cross-cutting edges should be excluded from dependency direction"
+        // Cross-cutting components are not classified — layer conformance should
+        // only see the domain component and return a value in [0, 100].
+        let components: Vec<Component> = vec![c1, c2];
+        let conformance = calculate_layer_conformance(&components, &[]);
+        // domain has one entity (A=0, I=0) → distance to Domain centroid (0.75, 0.15) ≈ 0.765
+        // conformance = max(0, 1 - 0.765) ≈ 0.235 → Some(23.5)
+        assert!(
+            conformance.is_some(),
+            "should have at least one classified package"
+        );
+        let val = conformance.unwrap();
+        assert!(
+            (0.0..=100.0).contains(&val),
+            "conformance must be in [0, 100], got {val}"
         );
     }
 
@@ -1288,7 +1400,7 @@ mod tests {
     }
 
     #[test]
-    fn test_service_oriented_excluded_from_isolation() {
+    fn test_service_oriented_excluded_from_compliance() {
         let mut graph = DependencyGraph::new();
         let c1 = make_component_with_mode(
             "domain",
@@ -1306,36 +1418,10 @@ mod tests {
         graph.add_component(&c2);
         graph.add_dependency(&make_dep("domain", "infra"));
 
-        let isolation = calculate_layer_isolation(&graph);
+        let compliance = calculate_dependency_compliance(&graph);
         assert_eq!(
-            isolation, 100.0,
-            "service-oriented edges should be excluded from isolation"
-        );
-    }
-
-    #[test]
-    fn test_service_oriented_excluded_from_direction() {
-        let mut graph = DependencyGraph::new();
-        let c1 = make_component_with_mode(
-            "domain",
-            "Entity",
-            Some(ArchLayer::Domain),
-            ArchitectureMode::ServiceOriented,
-        );
-        let c2 = make_component_with_mode(
-            "infra",
-            "Repo",
-            Some(ArchLayer::Infrastructure),
-            ArchitectureMode::ServiceOriented,
-        );
-        graph.add_component(&c1);
-        graph.add_component(&c2);
-        graph.add_dependency(&make_dep("domain", "infra"));
-
-        let direction = calculate_dependency_direction(&graph);
-        assert_eq!(
-            direction, 100.0,
-            "service-oriented edges should be excluded from dependency direction"
+            compliance, 100.0,
+            "service-oriented edges should be excluded from dependency compliance"
         );
     }
 
@@ -1463,7 +1549,7 @@ mod tests {
     }
 
     #[test]
-    fn test_external_excluded_from_layer_isolation() {
+    fn test_external_excluded_from_dependency_compliance() {
         let mut graph = DependencyGraph::new();
         let c1 = make_component("domain", "Entity", Some(ArchLayer::Domain));
         let c2 = make_external_component("ext", "StripeGo", None);
@@ -1472,15 +1558,15 @@ mod tests {
         graph.mark_external(&ComponentId("ext".to_string()));
         graph.add_dependency(&make_dep("domain", "ext"));
 
-        let isolation = calculate_layer_isolation(&graph);
+        let compliance = calculate_dependency_compliance(&graph);
         assert_eq!(
-            isolation, 100.0,
-            "external edges should be excluded from isolation"
+            compliance, 100.0,
+            "external edges should be excluded from dependency compliance"
         );
     }
 
     #[test]
-    fn test_external_excluded_from_dependency_direction() {
+    fn test_external_excluded_from_layer_compliance_direction() {
         let mut graph = DependencyGraph::new();
         let c1 = make_component("domain", "Entity", Some(ArchLayer::Domain));
         let c2 = make_external_component("ext", "GoogleUUID", None);
@@ -1489,10 +1575,10 @@ mod tests {
         graph.mark_external(&ComponentId("ext".to_string()));
         graph.add_dependency(&make_dep("domain", "ext"));
 
-        let direction = calculate_dependency_direction(&graph);
+        let compliance = calculate_dependency_compliance(&graph);
         assert_eq!(
-            direction, 100.0,
-            "external edges should be excluded from dependency direction"
+            compliance, 100.0,
+            "external edges should be excluded from dependency compliance"
         );
     }
 

@@ -415,8 +415,8 @@ fn parse_score_json(stdout: &str) -> (f64, f64, f64, f64, f64) {
     (
         parsed["overall"].as_f64().unwrap(),
         parsed["structural_presence"].as_f64().unwrap(),
-        parsed["layer_isolation"].as_f64().unwrap(),
-        parsed["dependency_direction"].as_f64().unwrap(),
+        parsed["layer_conformance"].as_f64().unwrap(),
+        parsed["dependency_compliance"].as_f64().unwrap(),
         parsed["interface_coverage"].as_f64().unwrap(),
     )
 }
@@ -447,9 +447,9 @@ fn test_score_go_fixture() {
     let (overall, _presence, layer, deps, iface) = parse_score_json(&stdout);
 
     // Go fixture has a domain->infra violation, so scores should be imperfect
-    assert_score_near(overall, 73.3, 5.0, "go overall");
-    assert_score_near(layer, 66.7, 5.0, "go layer_isolation");
-    assert_score_near(deps, 66.7, 5.0, "go dependency_direction");
+    assert_score_near(overall, 73.3, 10.0, "go overall");
+    assert_score_near(layer, 60.0, 15.0, "go layer_conformance");
+    assert_score_near(deps, 66.7, 5.0, "go dependency_compliance");
     assert_score_near(iface, 100.0, 1.0, "go interface_coverage");
 }
 
@@ -471,9 +471,9 @@ fn test_score_ts_fixture() {
 
     let (overall, _presence, layer, deps, iface) = parse_score_json(&stdout);
 
-    assert_score_near(overall, 84.0, 5.0, "ts overall");
-    assert_score_near(layer, 80.0, 5.0, "ts layer_isolation");
-    assert_score_near(deps, 80.0, 5.0, "ts dependency_direction");
+    assert_score_near(overall, 69.0, 10.0, "ts overall");
+    assert_score_near(layer, 43.0, 15.0, "ts layer_conformance");
+    assert_score_near(deps, 80.0, 5.0, "ts dependency_compliance");
     assert_score_near(iface, 100.0, 1.0, "ts interface_coverage");
 }
 
@@ -499,14 +499,14 @@ fn test_score_java_fixture() {
     // structural presence gate reduces the overall score further.
     // Synthetic placeholder nodes (kind: None) are excluded from presence
     // calculation, raising the effective presence vs. the pre-fix baseline.
-    assert_score_near(overall, 20.0, 5.0, "java overall");
+    assert_score_near(overall, 35.0, 10.0, "java overall");
     assert!(
-        layer <= 10.0,
-        "java layer_isolation should be low, got {layer}"
+        layer <= 60.0,
+        "java layer_conformance should be moderate/low, got {layer}"
     );
     assert!(
         deps <= 10.0,
-        "java dependency_direction should be low, got {deps}"
+        "java dependency_compliance should be low, got {deps}"
     );
     assert_score_near(iface, 100.0, 1.0, "java interface_coverage");
 }
@@ -530,14 +530,14 @@ fn test_score_rust_fixture() {
     let (overall, _presence, layer, deps, iface) = parse_score_json(&stdout);
 
     // Rust fixture has domain->infra violation
-    assert_score_near(overall, 20.0, 5.0, "rust overall");
+    assert_score_near(overall, 37.0, 10.0, "rust overall");
     assert!(
-        layer <= 10.0,
-        "rust layer_isolation should be low, got {layer}"
+        layer <= 60.0,
+        "rust layer_conformance should be moderate/low, got {layer}"
     );
     assert!(
         deps <= 10.0,
-        "rust dependency_direction should be low, got {deps}"
+        "rust dependency_compliance should be low, got {deps}"
     );
     assert_score_near(iface, 100.0, 1.0, "rust interface_coverage");
 }

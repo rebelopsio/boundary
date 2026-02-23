@@ -292,18 +292,18 @@ fn print_score_only(
 ) {
     let overall = score.map(|s| s.overall).unwrap_or(0.0);
     let presence = score.map(|s| s.structural_presence).unwrap_or(0.0);
-    let layer = score.map(|s| s.layer_isolation).unwrap_or(0.0);
-    let direction = score.map(|s| s.dependency_direction).unwrap_or(0.0);
+    let conformance = score.map(|s| s.layer_conformance).unwrap_or(0.0);
+    let compliance = score.map(|s| s.dependency_compliance).unwrap_or(0.0);
     let iface = score.map(|s| s.interface_coverage).unwrap_or(0.0);
     match format {
         OutputFormat::Json => {
             println!(
-                "{{\"module\":\"{module}\",\"overall\":{overall:.1},\"structural_presence\":{presence:.1},\"layer_isolation\":{layer:.1},\"dependency_direction\":{direction:.1},\"interface_coverage\":{iface:.1}}}"
+                "{{\"module\":\"{module}\",\"overall\":{overall:.1},\"structural_presence\":{presence:.1},\"layer_conformance\":{conformance:.1},\"dependency_compliance\":{compliance:.1},\"interface_coverage\":{iface:.1}}}"
             );
         }
         OutputFormat::Text | OutputFormat::Markdown => {
             println!(
-                "{module}: {overall:.1}/100 (Presence: {presence:.1}, Layer: {layer:.1}, Deps: {direction:.1}, Interfaces: {iface:.1})"
+                "{module}: {overall:.1}/100 (Presence: {presence:.1}, Conformance: {conformance:.1}, Compliance: {compliance:.1}, Interfaces: {iface:.1})"
             );
         }
     }

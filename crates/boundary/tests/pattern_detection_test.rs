@@ -188,17 +188,17 @@ fn pattern_score_included_when_high_confidence() {
     );
     assert!(
         score
-            .get("layer_isolation")
+            .get("layer_conformance")
             .and_then(|v| v.as_f64())
             .is_some(),
-        "'score.layer_isolation' missing or not a number: {score}"
+        "'score.layer_conformance' missing or not a number: {score}"
     );
     assert!(
         score
-            .get("dependency_direction")
+            .get("dependency_compliance")
             .and_then(|v| v.as_f64())
             .is_some(),
-        "'score.dependency_direction' missing or not a number: {score}"
+        "'score.dependency_compliance' missing or not a number: {score}"
     );
 }
 

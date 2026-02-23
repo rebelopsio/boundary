@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/rebelopsio/boundary/compare/v0.15.0...v0.16.0) (2026-02-23)
+
+
+### Features
+
+* layer conformance ([#64](https://github.com/rebelopsio/boundary/issues/64)) ([eaff6e3](https://github.com/rebelopsio/boundary/commit/eaff6e3d985d97fb450fdcb8ceaa0290c94f2237))
+
 ## [0.15.0](https://github.com/rebelopsio/boundary/compare/v0.14.0...v0.15.0) (2026-02-23)
 
 

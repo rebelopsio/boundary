@@ -119,6 +119,43 @@ pub fn format_report(result: &AnalysisResult) -> String {
         }
     }
 
+    // Zone of Pain / Zone of Uselessness — informational, not a violation
+    {
+        let pain: Vec<&str> = result
+            .package_metrics
+            .iter()
+            .filter(|pm| pm.zone.as_deref() == Some("pain"))
+            .map(|pm| pm.package.as_str())
+            .collect();
+        let useless: Vec<&str> = result
+            .package_metrics
+            .iter()
+            .filter(|pm| pm.zone.as_deref() == Some("uselessness"))
+            .map(|pm| pm.package.as_str())
+            .collect();
+
+        if !pain.is_empty() || !useless.is_empty() {
+            out.push_str(&format!(
+                "\n{}\n",
+                "Package Zone Warnings (informational)".yellow().bold()
+            ));
+            for pkg in &pain {
+                out.push_str(&format!(
+                    "  {} — {} (concrete and stable; hard to change)\n",
+                    pkg,
+                    "Zone of Pain".yellow()
+                ));
+            }
+            for pkg in &useless {
+                out.push_str(&format!(
+                    "  {} — {} (abstract and unstable; unused abstractions)\n",
+                    pkg,
+                    "Zone of Uselessness".yellow()
+                ));
+            }
+        }
+    }
+
     // Violations — only claim "no violations" when we actually checked (layers were detected)
     let no_layers = result
         .score

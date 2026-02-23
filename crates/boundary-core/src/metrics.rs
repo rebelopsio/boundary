@@ -124,6 +124,12 @@ pub struct PackageMetric {
     pub instability: f64,
     /// Distance from main sequence D = |A + I - 1|, rounded to 2 decimal places.
     pub distance: f64,
+    /// Zone classification when the package is far from the main sequence (D > 0.5).
+    /// "pain"        — concrete and stable (A < 0.5, I < 0.5): rigid, hard to change.
+    /// "uselessness" — abstract and unstable (A > 0.5, I > 0.5): unused abstractions.
+    /// Absent when the package is on or near the main sequence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zone: Option<String>,
 }
 
 /// Full analysis result.
@@ -1070,11 +1076,24 @@ fn compute_package_metrics(
             };
             let d = (a + i - 1.0).abs();
 
+            let zone = if d > 0.5 {
+                if a < 0.5 && i < 0.5 {
+                    Some("pain".to_string())
+                } else if a > 0.5 && i > 0.5 {
+                    Some("uselessness".to_string())
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
             PackageMetric {
                 package: short.clone(),
                 abstractness: round2(a),
                 instability: round2(i),
                 distance: round2(d),
+                zone,
             }
         })
         .collect();

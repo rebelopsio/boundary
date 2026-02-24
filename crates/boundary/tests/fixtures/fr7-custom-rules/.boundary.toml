@@ -1,0 +1,7 @@
+[[rules.custom_rules]]
+name = "no-domain-external"
+from_pattern = ".*domain.*"
+to_pattern = ".*external.*"
+action = "deny"
+severity = "warning"
+message = "Domain must not import external packages"

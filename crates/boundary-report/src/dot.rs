@@ -15,6 +15,10 @@ pub fn generate_layer_diagram(graph: &DependencyGraph) -> String {
     let mut unclassified = Vec::new();
 
     for node in graph.nodes() {
+        // Skip synthetic placeholder nodes (<file>, <package>) — they have no kind.
+        if node.kind.is_none() {
+            continue;
+        }
         let id = sanitize_dot_id(&node.id.0);
         let label = &node.name;
         match node.layer {
@@ -71,8 +75,11 @@ pub fn generate_layer_diagram(graph: &DependencyGraph) -> String {
         out.push_str("  }\n\n");
     }
 
-    // Render edges
+    // Render edges — skip edges involving synthetic nodes
     for (src, tgt, edge) in graph.edges_with_nodes() {
+        if src.kind.is_none() || tgt.kind.is_none() {
+            continue;
+        }
         let from = sanitize_dot_id(&src.id.0);
         let to = sanitize_dot_id(&tgt.id.0);
 
@@ -126,6 +133,10 @@ pub fn generate_dependency_flow(graph: &DependencyGraph) -> String {
     let mut layer_edges: HashMap<(String, String), (usize, usize)> = HashMap::new();
 
     for (src, tgt, _) in graph.edges_with_nodes() {
+        // Skip edges involving synthetic placeholder nodes
+        if src.kind.is_none() || tgt.kind.is_none() {
+            continue;
+        }
         let from_label = match src.layer {
             Some(l) => l.to_string(),
             None => "unclassified".to_string(),

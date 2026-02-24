@@ -12,6 +12,20 @@ fn fixture(name: &str) -> String {
     format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))
 }
 
+fn analyze_per_service_text(fixture_name: &str) -> String {
+    let path = fixture(fixture_name);
+    let output = boundary_cmd()
+        .args(["analyze", &path, "--per-service", "--format", "text"])
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run boundary on {fixture_name}: {e}"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "boundary failed on {fixture_name}: stderr={stderr}"
+    );
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
 fn analyze_per_service_json(fixture_name: &str) -> serde_json::Value {
     let path = fixture(fixture_name);
     let output = boundary_cmd()
@@ -98,4 +112,40 @@ fn per_service_each_result_has_score() {
             "service '{name}' result should have a 'score' object; got: {score}"
         );
     }
+}
+
+/// Services with sufficient architectural structure produce a score whose pattern confidence
+/// is >= 0.5, so the text table shows numeric values rather than em-dashes.
+#[test]
+fn text_table_shows_numeric_scores_for_structured_service() {
+    let text = analyze_per_service_text("fr24-monorepo-mixed");
+    // The auth service row should contain a numeric overall score, not "—".
+    let auth_line = text
+        .lines()
+        .find(|l| l.trim_start().starts_with("auth"))
+        .expect("text output should contain an auth service row");
+    assert!(
+        !auth_line.contains('—'),
+        "structured service should show numeric scores, not em-dash; got: {auth_line}"
+    );
+}
+
+/// Services with insufficient architectural structure have their score suppressed
+/// (pattern confidence < 0.5). The text table must render "—" in every score column
+/// rather than a misleading "0.0".
+#[test]
+fn text_table_shows_em_dash_for_service_with_suppressed_score() {
+    let text = analyze_per_service_text("fr24-monorepo-mixed");
+    let minimal_line = text
+        .lines()
+        .find(|l| l.trim_start().starts_with("minimal"))
+        .expect("text output should contain a minimal service row");
+    assert!(
+        minimal_line.contains('—'),
+        "service with suppressed score should show '—', not '0.0'; got: {minimal_line}"
+    );
+    assert!(
+        !minimal_line.contains("0.0"),
+        "service with suppressed score must not show '0.0'; got: {minimal_line}"
+    );
 }

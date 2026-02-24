@@ -34,3 +34,13 @@ Feature: Monorepo / Multi-Service Support (FR-24)
     When I run "boundary analyze --per-service --format json"
     Then the output contains a "shared_modules" array
     And at least one shared module is identified
+
+  Scenario: Services with sufficient structure show numeric scores in the text table
+    Given a monorepo where the auth service has clear domain and infrastructure layers
+    When I run "boundary analyze --per-service --format text"
+    Then the auth service row shows numeric values in the Overall, Conformance, Compliance, and Iface Cov columns
+
+  Scenario: Services with insufficient structure show suppressed scores in the text table
+    Given a monorepo where the order service has only a single file with no recognisable architectural layers
+    When I run "boundary analyze --per-service --format text"
+    Then the order service row shows "—" in all score columns rather than "0.0"

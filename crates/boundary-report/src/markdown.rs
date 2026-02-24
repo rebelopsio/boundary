@@ -93,6 +93,39 @@ pub fn format_report(result: &AnalysisResult) -> String {
         }
     }
 
+    // Package Metrics
+    if !result.package_metrics.is_empty() {
+        out.push_str("\n## Package Metrics\n\n");
+        out.push_str("| Package | A | I | D | Zone |\n");
+        out.push_str("|---------|---|---|---|------|\n");
+        for pm in &result.package_metrics {
+            let zone = match pm.zone.as_deref() {
+                Some("pain") => "⚠ Pain",
+                Some("uselessness") => "⚠ Uselessness",
+                _ => "—",
+            };
+            out.push_str(&format!(
+                "| {} | {:.2} | {:.2} | {:.2} | {} |\n",
+                pm.package, pm.abstractness, pm.instability, pm.distance, zone
+            ));
+        }
+    }
+
+    // Pattern Detection
+    if let Some(ref pd) = result.pattern_detection {
+        out.push_str("\n## Pattern Detection\n\n");
+        out.push_str(&format!(
+            "Top Pattern: **{}** ({:.0}% confidence)\n\n",
+            pd.top_pattern,
+            pd.top_confidence * 100.0
+        ));
+        out.push_str("| Pattern | Confidence |\n");
+        out.push_str("|---------|------------|\n");
+        for p in &pd.patterns {
+            out.push_str(&format!("| {} | {:.0}% |\n", p.name, p.confidence * 100.0));
+        }
+    }
+
     // Violations
     if result.violations.is_empty() {
         out.push_str("\n## Violations\n\nNo violations found.\n");

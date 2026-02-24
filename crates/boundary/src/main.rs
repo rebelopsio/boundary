@@ -12,7 +12,7 @@ use boundary_core::graph::DependencyGraph;
 use boundary_core::layer::LayerClassifier;
 use boundary_core::metrics;
 use boundary_core::pipeline::{self, AnalysisPipeline};
-use boundary_core::types::Severity;
+use boundary_core::types::{DependencyKind, Severity};
 
 use boundary_go::GoAnalyzer;
 use boundary_java::JavaAnalyzer;
@@ -715,9 +715,11 @@ fn run_analysis(
                             .dependencies
                             .iter()
                             .filter(|dep| {
-                                !dep.import_path
-                                    .as_deref()
-                                    .is_some_and(|p| analyzer.is_stdlib_import(p))
+                                matches!(dep.kind, DependencyKind::MethodCall)
+                                    || !dep
+                                        .import_path
+                                        .as_deref()
+                                        .is_some_and(|p| analyzer.is_stdlib_import(p))
                             })
                             .map(|dep| {
                                 let to_layer = dep
@@ -781,9 +783,13 @@ fn run_analysis(
                 let dependencies: Vec<_> = deps
                     .into_iter()
                     .filter(|dep| {
-                        !dep.import_path
-                            .as_deref()
-                            .is_some_and(|p| analyzer.is_stdlib_import(p))
+                        // MethodCall (init function) deps use local aliases, not module paths;
+                        // never treat them as stdlib. Only filter Import-kind deps.
+                        matches!(dep.kind, DependencyKind::MethodCall)
+                            || !dep
+                                .import_path
+                                .as_deref()
+                                .is_some_and(|p| analyzer.is_stdlib_import(p))
                     })
                     .map(|dep| {
                         let to_layer = dep

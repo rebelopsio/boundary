@@ -1,0 +1,2 @@
+[rules]
+detect_init_functions = false

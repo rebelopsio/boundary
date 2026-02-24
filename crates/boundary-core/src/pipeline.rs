@@ -12,7 +12,7 @@ use crate::config::Config;
 use crate::graph::DependencyGraph;
 use crate::layer::LayerClassifier;
 use crate::metrics;
-use crate::types::{ArchLayer, ArchitectureMode, Component, Dependency};
+use crate::types::{ArchLayer, ArchitectureMode, Component, Dependency, DependencyKind};
 
 /// Full analysis output including the graph for diagram generation.
 pub struct FullAnalysis {
@@ -152,10 +152,13 @@ impl AnalysisPipeline {
                     let dependencies: Vec<_> = deps
                         .into_iter()
                         .filter(|dep| {
-                            // Skip standard library imports — they are not architectural dependencies
-                            !dep.import_path
-                                .as_deref()
-                                .is_some_and(|p| analyzer.is_stdlib_import(p))
+                            // MethodCall (init function) deps use local aliases, not module paths;
+                            // never treat them as stdlib. Only filter Import-kind deps.
+                            matches!(dep.kind, DependencyKind::MethodCall)
+                                || !dep
+                                    .import_path
+                                    .as_deref()
+                                    .is_some_and(|p| analyzer.is_stdlib_import(p))
                         })
                         .map(|dep| {
                             let to_layer = dep
@@ -312,9 +315,11 @@ impl AnalysisPipeline {
                                 .dependencies
                                 .iter()
                                 .filter(|dep| {
-                                    !dep.import_path
-                                        .as_deref()
-                                        .is_some_and(|p| analyzer.is_stdlib_import(p))
+                                    matches!(dep.kind, DependencyKind::MethodCall)
+                                        || !dep
+                                            .import_path
+                                            .as_deref()
+                                            .is_some_and(|p| analyzer.is_stdlib_import(p))
                                 })
                                 .map(|dep| {
                                     let to_layer = dep
@@ -376,9 +381,11 @@ impl AnalysisPipeline {
                     let dependencies: Vec<_> = deps
                         .into_iter()
                         .filter(|dep| {
-                            !dep.import_path
-                                .as_deref()
-                                .is_some_and(|p| analyzer.is_stdlib_import(p))
+                            matches!(dep.kind, DependencyKind::MethodCall)
+                                || !dep
+                                    .import_path
+                                    .as_deref()
+                                    .is_some_and(|p| analyzer.is_stdlib_import(p))
                         })
                         .map(|dep| {
                             let to_layer = dep

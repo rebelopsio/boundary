@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.3](https://github.com/rebelopsio/boundary/compare/v0.18.2...v0.18.3) (2026-02-24)
+
+
+### Bug Fixes
+
+* reclassify infrastructure-layer *Handler/*Controller structs as Adapter ([#80](https://github.com/rebelopsio/boundary/issues/80)) ([db94339](https://github.com/rebelopsio/boundary/commit/db943399dc826d15e98e7da5765bc7d74b8f902d))
+
 ## [0.18.2](https://github.com/rebelopsio/boundary/compare/v0.18.1...v0.18.2) (2026-02-24)
 
 

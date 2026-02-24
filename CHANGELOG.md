@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/rebelopsio/boundary/compare/v0.16.0...v0.17.0) (2026-02-24)
+
+
+### Features
+
+* add Phase 5 P1 acceptance tests for FR-20/21/22/24 ([#67](https://github.com/rebelopsio/boundary/issues/67)) ([c2c6933](https://github.com/rebelopsio/boundary/commit/c2c6933e9389a8dbe528d5f26b8648ca5c684e29))
+
 ## [0.16.0](https://github.com/rebelopsio/boundary/compare/v0.15.0...v0.16.0) (2026-02-23)
 
 

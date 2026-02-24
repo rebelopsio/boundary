@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.1](https://github.com/rebelopsio/boundary/compare/v0.18.0...v0.18.1) (2026-02-24)
+
+
+### Bug Fixes
+
+* show — instead of 0.0 for services with suppressed scores ([#74](https://github.com/rebelopsio/boundary/issues/74)) ([5943196](https://github.com/rebelopsio/boundary/commit/5943196978605b17dddcf0891b19acf98cace668))
+
 ## [0.18.0](https://github.com/rebelopsio/boundary/compare/v0.17.0...v0.18.0) (2026-02-24)
 
 

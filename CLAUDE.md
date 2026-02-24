@@ -11,6 +11,18 @@ parsing, builds dependency graphs with petgraph, and scores architectural patter
 objective, deterministic metrics. Currently in active development with Go as the first
 supported language.
 
+## Git Workflow
+
+**Always work on a feature branch. Never commit or push directly to `main`.**
+
+1. Before making any changes, create a branch: `git checkout -b <type>/<short-description>`
+2. Use conventional commit prefixes: `feat/`, `fix/`, `chore/`, `docs/`, `test/`, `ci/`
+3. Commit on the branch, then ask the user before pushing
+4. Never run `git push origin main` or any force-push
+5. If already on `main` when work begins, create a branch immediately before touching any file
+
+This applies to all changes — code, docs, config, and workflow files without exception.
+
 ## Development Workflow
 
 **BDD → ATDD → TDD → Red → Green → Refactor. Atomic changes only.**

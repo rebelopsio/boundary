@@ -262,6 +262,11 @@ fn detect_layer_violations(
             continue;
         }
 
+        // Skip init() function deps — they are reported by detect_init_violations instead
+        if src.id.0.contains("<init>") {
+            continue;
+        }
+
         // Service-oriented mode skips all layer boundary checks
         if src.architecture_mode == ArchitectureMode::ServiceOriented {
             continue;
@@ -270,6 +275,14 @@ fn detect_layer_violations(
         let (Some(from_layer), Some(to_layer)) = (src.layer, tgt.layer) else {
             continue;
         };
+
+        // ActiveRecord mode allows domain → infrastructure (entity owns its persistence)
+        if src.architecture_mode == ArchitectureMode::ActiveRecord
+            && from_layer == ArchLayer::Domain
+            && to_layer == ArchLayer::Infrastructure
+        {
+            continue;
+        }
 
         if from_layer.violates_dependency_on(&to_layer) {
             let import_detail = edge

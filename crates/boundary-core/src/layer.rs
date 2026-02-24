@@ -133,25 +133,37 @@ impl LayerClassifier {
                 return Some(layer);
             }
         }
-        // Fallback: simple substring heuristic
+        // Fallback: heuristic based on path segments.
+        // Also matches bare package aliases (e.g. "infrastructure" from init() call sites).
         let lower = import_path.to_lowercase();
-        if lower.contains("/domain") || lower.contains("/entity") || lower.contains("/model") {
+        let last = lower.split('/').next_back().unwrap_or(&lower);
+        if lower.contains("/domain")
+            || lower.contains("/entity")
+            || lower.contains("/model")
+            || matches!(last, "domain" | "entity" | "model")
+        {
             Some(ArchLayer::Domain)
         } else if lower.contains("/application")
             || lower.contains("/usecase")
             || lower.contains("/service")
+            || matches!(last, "application" | "usecase" | "service")
         {
             Some(ArchLayer::Application)
         } else if lower.contains("/infrastructure")
             || lower.contains("/adapter")
             || lower.contains("/repository")
             || lower.contains("/persistence")
+            || matches!(
+                last,
+                "infrastructure" | "adapter" | "repository" | "persistence"
+            )
         {
             Some(ArchLayer::Infrastructure)
         } else if lower.contains("/presentation")
             || lower.contains("/handler")
             || lower.contains("/api/")
             || lower.contains("/cmd")
+            || matches!(last, "presentation" | "handler" | "cmd")
         {
             Some(ArchLayer::Presentation)
         } else {

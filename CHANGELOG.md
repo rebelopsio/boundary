@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.2](https://github.com/rebelopsio/boundary/compare/v0.18.1...v0.18.2) (2026-02-24)
+
+
+### Bug Fixes
+
+* correct Go adapter/port detection (two bugs) ([#76](https://github.com/rebelopsio/boundary/issues/76)) ([a7fe92e](https://github.com/rebelopsio/boundary/commit/a7fe92e01ca41fb91664319d123313fd83493888))
+
 ## [0.18.1](https://github.com/rebelopsio/boundary/compare/v0.18.0...v0.18.1) (2026-02-24)
 
 

@@ -273,7 +273,9 @@ fn extract_interfaces(
         if name.is_empty() {
             continue;
         }
-        // Skip unexported types (Go convention: lowercase first letter = unexported)
+        // Unexported interfaces are intentionally skipped: they are internal contracts,
+        // not domain ports. Only exported interfaces qualify as ports for scoring
+        // purposes. (Note: unexported *structs* are included — see extract_structs.)
         if name.starts_with(|c: char| c.is_lowercase()) {
             continue;
         }
@@ -340,10 +342,6 @@ fn extract_structs(query: &Query, parsed: &ParsedFile, pkg: &str, components: &m
         }
 
         if name.is_empty() {
-            continue;
-        }
-        // Skip unexported types (Go convention: lowercase first letter = unexported)
-        if name.starts_with(|c: char| c.is_lowercase()) {
             continue;
         }
 
@@ -456,11 +454,6 @@ fn classify_struct_kind(name: &str, fields: &[FieldInfo]) -> ComponentKind {
         ComponentKind::Repository
     } else if lower.ends_with("service") || lower.ends_with("svc") {
         ComponentKind::Service
-    } else if lower.ends_with("handler") || lower.ends_with("controller") {
-        ComponentKind::Adapter(AdapterInfo {
-            name: name.to_string(),
-            implements: Vec::new(),
-        })
     } else if lower.ends_with("usecase") || lower.ends_with("interactor") {
         ComponentKind::UseCase
     } else if lower.ends_with("event") {
@@ -874,6 +867,64 @@ func init() {
         assert!(
             !init_deps.is_empty(),
             "should extract dependencies from init() function"
+        );
+    }
+
+    #[test]
+    fn test_handler_struct_not_classified_as_adapter() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        let content = r#"
+package application
+
+type UserHandler struct {
+    ID   string
+    Name string
+}
+"#;
+        let path = PathBuf::from("internal/application/handler.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let handler = components.iter().find(|c| c.name == "UserHandler");
+        assert!(handler.is_some(), "should find UserHandler");
+        assert!(
+            !matches!(handler.unwrap().kind, ComponentKind::Adapter(_)),
+            "UserHandler must NOT be classified as Adapter; got {:?}",
+            handler.unwrap().kind
+        );
+        // Positive assertion: UserHandler has an ID field so it classifies as Entity.
+        assert!(
+            matches!(handler.unwrap().kind, ComponentKind::Entity(_)),
+            "UserHandler with ID/Name fields should be classified as Entity; got {:?}",
+            handler.unwrap().kind
+        );
+    }
+
+    #[test]
+    fn test_unexported_repository_is_included() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        // mongoRepo is classified by name suffix ("repo"), not field content —
+        // the suffix match fires before the value-object heuristic is reached.
+        let content = r#"
+package infrastructure
+
+type mongoRepo struct {
+    client interface{}
+}
+"#;
+        let path = PathBuf::from("internal/infrastructure/mongo_repo.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let repo = components.iter().find(|c| c.name == "mongoRepo");
+        assert!(
+            repo.is_some(),
+            "unexported mongoRepo should be extracted as a real component"
+        );
+        assert!(
+            matches!(repo.unwrap().kind, ComponentKind::Repository),
+            "mongoRepo should be classified as Repository; got {:?}",
+            repo.unwrap().kind
         );
     }
 

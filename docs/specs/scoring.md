@@ -289,3 +289,15 @@ Rules:
 | Concrete type | `struct`        | `struct` (non-trait)    | `class` (non-abstract)            | `class` (non-abstract)      |
 | Package unit  | Go package      | Rust module             | Java package                      | Directory                   |
 | Port signal   | interface in domain layer | trait in domain module | interface in domain package | interface in domain dir |
+
+### Go-Specific: Adapter Detection
+
+Infrastructure adapters in Go commonly use unexported concrete types paired with an exported
+constructor returning the port interface (e.g. `func NewMongoInvoiceRepository() ports.InvoiceRepository`).
+Boundary treats unexported Go structs as real components for scoring — they are counted toward
+`interface_coverage` just as exported structs are.
+
+Structs named `*Handler` or `*Controller` in application or presentation layers are
+orchestrators, not hexagonal adapters. They are **not** counted toward `interface_coverage`
+regardless of layer. Only infrastructure-layer types that implement domain ports qualify as
+adapters for coverage purposes.

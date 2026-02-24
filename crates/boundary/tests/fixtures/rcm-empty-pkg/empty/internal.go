@@ -1,6 +1,4 @@
 package empty
 
-// unexportedHelper is not exported — no real components in this package.
-type unexportedHelper struct {
-	value string
-}
+// This package has no type declarations — used to verify that Nc=0 packages
+// are excluded from package_metrics output.

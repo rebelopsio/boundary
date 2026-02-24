@@ -59,23 +59,22 @@ fn application_handler_not_counted_as_adapter() {
     );
 }
 
-/// Scenario 2: Infrastructure-layer *Handler (driving adapter) IS counted as an adapter.
+/// Scenario 2: Infrastructure-layer *Handler (driving adapter) IS classified as Adapter kind.
 ///
 /// WebhookHandler lives in infrastructure/webhook.go and ends with "Handler".
-/// Despite the handler suffix, infra-layer handlers that are driving adapters
-/// should still be counted — the fix only removes the false positive from
-/// application/presentation layers via the heuristic removal.
-/// After the fix, WebhookHandler will fall through to Entity (has ID field),
-/// but must be picked up as an infrastructure component.
+/// classify_struct_kind has no layer context, so it would otherwise classify
+/// WebhookHandler as ValueObject. After layer assignment in the pipeline, the
+/// post-processing reclassification step must upgrade infrastructure-layer
+/// handler/controller structs to ComponentKind::Adapter.
 #[test]
-fn infrastructure_webhook_handler_is_infra_component() {
+fn infrastructure_webhook_handler_is_classified_as_adapter() {
     let result = analyze_json("fr-go-adapters");
-    let by_layer = &result["metrics"]["components_by_layer"];
+    let by_kind = &result["metrics"]["components_by_kind"];
 
-    let infra_count = by_layer["infrastructure"].as_u64().unwrap_or(0);
+    let adapter_count = by_kind["adapter"].as_u64().unwrap_or(0);
     assert!(
-        infra_count >= 1,
-        "infrastructure layer should have at least 1 component (WebhookHandler or mongoUserRepository), got {infra_count}"
+        adapter_count >= 1,
+        "WebhookHandler in infrastructure layer must be classified as Adapter kind, got adapter_count={adapter_count}"
     );
 }
 

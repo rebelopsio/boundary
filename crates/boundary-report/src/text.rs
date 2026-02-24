@@ -282,25 +282,20 @@ pub fn format_multi_service_report(multi: &boundary_core::metrics::MultiServiceR
     out.push_str(&format!("  {}\n", "-".repeat(66)));
 
     for svc in &multi.services {
+        let score = svc.result.score.as_ref();
+        let fmt = |v: Option<f64>, width: usize| -> String {
+            match v {
+                Some(f) => format!("{f:>width$.1}"),
+                None => format!("{:>width$}", "—"),
+            }
+        };
         out.push_str(&format!(
-            "  {:<20} {:>7.1} {:>11.1} {:>11.1} {:>9.1}\n",
+            "  {:<20} {} {} {} {}\n",
             svc.service_name,
-            svc.result.score.as_ref().map(|s| s.overall).unwrap_or(0.0),
-            svc.result
-                .score
-                .as_ref()
-                .map(|s| s.layer_conformance)
-                .unwrap_or(0.0),
-            svc.result
-                .score
-                .as_ref()
-                .map(|s| s.dependency_compliance)
-                .unwrap_or(0.0),
-            svc.result
-                .score
-                .as_ref()
-                .map(|s| s.interface_coverage)
-                .unwrap_or(0.0),
+            fmt(score.map(|s| s.overall), 7),
+            fmt(score.map(|s| s.layer_conformance), 11),
+            fmt(score.map(|s| s.dependency_compliance), 11),
+            fmt(score.map(|s| s.interface_coverage), 9),
         ));
     }
 

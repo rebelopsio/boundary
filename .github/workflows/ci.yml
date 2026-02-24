@@ -46,6 +46,9 @@ jobs:
 
   test:
     name: Test
+    # Skip for release-please PRs — those don't change code.
+    # Rulesets treat a skipped required check as passing.
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

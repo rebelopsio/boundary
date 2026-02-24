@@ -11,7 +11,7 @@ use boundary_core::config::Config;
 use boundary_core::graph::DependencyGraph;
 use boundary_core::layer::LayerClassifier;
 use boundary_core::metrics;
-use boundary_core::pipeline::{self, AnalysisPipeline};
+use boundary_core::pipeline::{self, reclassify_infra_handlers, AnalysisPipeline};
 use boundary_core::types::{DependencyKind, Severity};
 
 use boundary_go::GoAnalyzer;
@@ -706,6 +706,7 @@ fn run_analysis(
                                 }
                                 comp.is_cross_cutting = is_cross_cutting;
                                 comp.architecture_mode = arch_mode;
+                                reclassify_infra_handlers(&mut comp);
                                 let layer = comp.layer;
                                 (comp, layer)
                             })
@@ -773,6 +774,7 @@ fn run_analysis(
                         }
                         comp.is_cross_cutting = is_cross_cutting;
                         comp.architecture_mode = arch_mode;
+                        reclassify_infra_handlers(&mut comp);
                         let layer = comp.layer;
                         (comp, layer)
                     })

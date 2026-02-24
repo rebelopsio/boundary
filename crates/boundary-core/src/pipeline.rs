@@ -12,7 +12,9 @@ use crate::config::Config;
 use crate::graph::DependencyGraph;
 use crate::layer::LayerClassifier;
 use crate::metrics;
-use crate::types::{ArchLayer, ArchitectureMode, Component, Dependency, DependencyKind};
+use crate::types::{
+    AdapterInfo, ArchLayer, ArchitectureMode, Component, ComponentKind, Dependency, DependencyKind,
+};
 
 /// Full analysis output including the graph for diagram generation.
 pub struct FullAnalysis {
@@ -36,6 +38,34 @@ type ClassifiedDependency = (
 struct FileResult {
     components: Vec<(Component, Option<ArchLayer>)>,
     dependencies: Vec<ClassifiedDependency>,
+}
+
+/// Reclassify infrastructure-layer handler/controller structs as `Adapter`.
+///
+/// Language analyzers classify structs without knowing their architectural layer.
+/// After layer assignment, a `*Handler` or `*Controller` in the infrastructure
+/// layer is a driving (primary) adapter — it should be `ComponentKind::Adapter`,
+/// not whatever the name-suffix heuristic produced (typically `ValueObject`).
+///
+/// Application and presentation layer handlers are orchestrators and are left
+/// unchanged; only the infrastructure layer receives this upgrade.
+pub fn reclassify_infra_handlers(comp: &mut Component) {
+    if comp.layer != Some(ArchLayer::Infrastructure) {
+        return;
+    }
+    if matches!(
+        comp.kind,
+        ComponentKind::Adapter(_) | ComponentKind::Repository | ComponentKind::Service
+    ) {
+        return;
+    }
+    let lower = comp.name.to_lowercase();
+    if lower.ends_with("handler") || lower.ends_with("controller") {
+        comp.kind = ComponentKind::Adapter(AdapterInfo {
+            name: comp.name.clone(),
+            implements: Vec::new(),
+        });
+    }
 }
 
 /// Reusable analysis pipeline that can be shared between CLI and LSP.
@@ -143,6 +173,7 @@ impl AnalysisPipeline {
                             }
                             comp.is_cross_cutting = is_cross_cutting;
                             comp.architecture_mode = arch_mode;
+                            reclassify_infra_handlers(&mut comp);
                             let layer = comp.layer;
                             (comp, layer)
                         })
@@ -306,6 +337,7 @@ impl AnalysisPipeline {
                                     }
                                     comp.is_cross_cutting = is_cross_cutting;
                                     comp.architecture_mode = arch_mode;
+                                    reclassify_infra_handlers(&mut comp);
                                     let layer = comp.layer;
                                     (comp, layer)
                                 })
@@ -372,6 +404,7 @@ impl AnalysisPipeline {
                             }
                             comp.is_cross_cutting = is_cross_cutting;
                             comp.architecture_mode = arch_mode;
+                            reclassify_infra_handlers(&mut comp);
                             let layer = comp.layer;
                             (comp, layer)
                         })

@@ -12,6 +12,9 @@
 
 - [Layer Analysis](./features/layer-analysis.md)
 - [Architecture Modes](./features/architecture-modes.md)
+- [Custom Rules](./features/custom-rules.md)
+- [Reports](./features/reports.md)
+- [Diagrams](./features/diagrams.md)
 - [Monorepo Support](./features/monorepo-support.md)
 - [CI Integration](./features/ci-integration.md)
 - [Editor Integration](./features/editor-integration.md)

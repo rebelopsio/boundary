@@ -5,6 +5,13 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+  # Allow manual re-deployment from the Actions tab (instant recovery if the
+  # GitHub Pages environment is reset or the site goes dark).
+  workflow_dispatch:
+  # Weekly re-deployment keeps the Pages environment alive and catches any
+  # silent resets by GitHub's infrastructure.
+  schedule:
+    - cron: "0 6 * * 1"  # every Monday at 06:00 UTC
 
 permissions:
   pages: write

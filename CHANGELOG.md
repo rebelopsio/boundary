@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/rebelopsio/boundary/compare/v0.17.0...v0.18.0) (2026-02-24)
+
+
+### Features
+
+* complete FR-7, FR-12, and FR-13 ([#71](https://github.com/rebelopsio/boundary/issues/71)) ([b76e967](https://github.com/rebelopsio/boundary/commit/b76e967a32f8f92e91ecbcb26d33f77ec4affa3f))
+
 ## [0.17.0](https://github.com/rebelopsio/boundary/compare/v0.16.0...v0.17.0) (2026-02-24)
 
 

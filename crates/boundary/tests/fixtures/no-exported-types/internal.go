@@ -1,11 +1,4 @@
 package internal
 
-type user struct {
-	id   string
-	name string
-}
-
-type order struct {
-	id     string
-	userID string
-}
+// This package contains no type declarations — only a package clause.
+// Used to verify that boundary handles Go files with no extractable types gracefully.

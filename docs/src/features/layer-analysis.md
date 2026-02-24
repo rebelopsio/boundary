@@ -38,18 +38,36 @@ Boundary calculates three sub-scores that combine into an overall architecture s
 
 | Score | Default Weight | What It Measures |
 |-------|---------------|-----------------|
-| **Layer Isolation** | 40% | Percentage of dependencies that respect layer boundaries |
-| **Dependency Direction** | 40% | Whether dependencies flow in the correct direction (inward) |
-| **Interface Coverage** | 20% | Ratio of infrastructure adapters that have corresponding port interfaces |
+| **Layer Conformance** | 40% | How closely each package's (A, I) values match its assigned layer's expected region |
+| **Dependency Compliance** | 40% | Fraction of cross-layer imports that flow in the correct direction |
+| **Interface Coverage** | 20% | Balance between domain port interfaces and infrastructure adapters |
 
 ### Interface Coverage
 
 Interface coverage measures how well your infrastructure layer uses ports (interfaces) to decouple from the domain. Boundary counts:
 
-- **Ports**: Components with `ComponentKind::Port` (interfaces/traits in any layer)
-- **Adapters**: Components in the **infrastructure** layer with kind `Adapter`, `Repository`, or `Service`
+- **Ports**: Exported interfaces in the Domain layer
+- **Adapters**: Components in the Infrastructure layer with kind `Adapter`, `Repository`, or `Service`
 
-The score is `min(ports / adapters, 1.0) * 100`. If there are no infrastructure adapters, the score is 100.
+The score is `min(ports, adapters) / max(ports, adapters) * 100`. If there are no infrastructure adapters, the dimension is undefined and omitted from output — it is never defaulted to 100.
+
+#### Go-specific adapter detection
+
+In Go, infrastructure adapters commonly use unexported concrete types paired with an exported constructor:
+
+```go
+// unexported concrete type — boundary counts this as a real component
+type mongoUserRepository struct { ... }
+
+// exported constructor — the usual Go idiom
+func NewMongoUserRepository() ports.UserRepository {
+    return &mongoUserRepository{}
+}
+```
+
+Boundary includes unexported structs from the infrastructure layer in all component counts and interface coverage calculations.
+
+Structs named `*Handler` or `*Controller` in the **application** or **presentation** layers are treated as orchestrators, not adapters, and are not counted toward interface coverage. Infrastructure-layer handlers (driving/primary adapters) are counted as infrastructure components.
 
 ## Component Extraction
 

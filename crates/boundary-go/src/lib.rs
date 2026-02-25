@@ -420,6 +420,11 @@ fn extract_methods(query: &Query, parsed: &ParsedFile) -> HashMap<String, Vec<Me
 }
 
 /// Associate extracted methods with their receiver struct components.
+///
+/// After associating methods, entities with no methods are flagged as
+/// `is_anemic_domain_model`. This must happen here (not during initial
+/// classification) because methods are discovered in a separate tree-sitter
+/// query and are not available when `classify_struct_kind` runs.
 fn associate_methods(components: &mut [Component], methods: &HashMap<String, Vec<MethodInfo>>) {
     for component in components.iter_mut() {
         if let Some(struct_methods) = methods.get(&component.name) {
@@ -434,6 +439,13 @@ fn associate_methods(components: &mut [Component], methods: &HashMap<String, Vec
                 }
                 _ => {}
             }
+        }
+
+        // Flag entities that have an identity field but no domain methods.
+        // An entity with zero methods after the association pass is anemic —
+        // it holds data but delegates all behaviour to services.
+        if let ComponentKind::Entity(info) = &mut component.kind {
+            info.is_anemic_domain_model = info.methods.is_empty();
         }
     }
 }
@@ -480,6 +492,49 @@ fn to_pascal_case(name: &str) -> String {
 fn has_constructor_for_struct(struct_name: &str, file_content: &str) -> bool {
     let pattern = format!("func New{}(", to_pascal_case(struct_name));
     file_content.contains(&pattern)
+}
+
+/// Returns true when a lowercase struct name looks like a past-tense domain event.
+///
+/// Covers two naming styles:
+///   - `*event` suffix    — explicit (InvoiceCreatedEvent, PaymentSucceededEvent)
+///   - past-tense suffix  — implicit (InvoiceFinalized, PaymentSucceeded)
+///
+/// The implicit list is intentionally conservative to avoid false positives on
+/// domain model structs with past-participle adjectives (e.g. StoredPaymentMethod).
+fn is_domain_event_name(lower: &str) -> bool {
+    if lower.ends_with("event") {
+        return true;
+    }
+    // Past-tense verb endings common in domain event naming conventions
+    const PAST_TENSE_SUFFIXES: &[&str] = &[
+        "created",
+        "updated",
+        "deleted",
+        "finalized",
+        "canceled",
+        "cancelled",
+        "succeeded",
+        "failed",
+        "paid",
+        "voided",
+        "refunded",
+        "processed",
+        "published",
+        "dispatched",
+        "completed",
+        "expired",
+        "activated",
+        "deactivated",
+        "closed",
+        "opened",
+        "recorded",
+        "applied",
+        "reversed",
+        "rejected",
+        "approved",
+    ];
+    PAST_TENSE_SUFFIXES.iter().any(|s| lower.ends_with(s))
 }
 
 /// Classify a struct using name heuristics combined with file path and content context.
@@ -541,6 +596,18 @@ fn classify_struct_kind(
         }
     }
 
+    // ── Domain events (path-based, before generic heuristics) ────────────────
+    // Structs in domain/events/ are events by definition, regardless of name.
+    // For structs elsewhere, use a broad past-tense suffix list that covers
+    // codebases that name events without an explicit "Event" suffix
+    // (e.g. InvoiceFinalized, PaymentSucceeded).
+    if file_path.contains("domain/events/") || is_domain_event_name(&lower) {
+        return ComponentKind::DomainEvent(EventInfo {
+            name: name.to_string(),
+            fields: fields.to_vec(),
+        });
+    }
+
     // ── Generic name-based classification (layer-agnostic) ───────────────────
     if lower.ends_with("repository") || lower.ends_with("repo") {
         ComponentKind::Repository
@@ -548,11 +615,6 @@ fn classify_struct_kind(
         ComponentKind::Service
     } else if lower.ends_with("usecase") || lower.ends_with("interactor") {
         ComponentKind::UseCase
-    } else if lower.ends_with("event") {
-        ComponentKind::DomainEvent(EventInfo {
-            name: name.to_string(),
-            fields: fields.to_vec(),
-        })
     } else if !fields.is_empty()
         && !fields.iter().any(|f| {
             let fl = f.name.to_lowercase();
@@ -562,11 +624,14 @@ fn classify_struct_kind(
         // Value object heuristic: has fields but no identity field.
         ComponentKind::ValueObject
     } else {
+        // is_anemic_domain_model is set to false here and updated after method
+        // association in associate_methods, where method counts are available.
         ComponentKind::Entity(EntityInfo {
             name: name.to_string(),
             fields: fields.to_vec(),
             methods: Vec::new(),
             is_active_record: false,
+            is_anemic_domain_model: false,
         })
     }
 }
@@ -796,6 +861,92 @@ type PaymentSucceededEvent struct {
             matches!(event.unwrap().kind, ComponentKind::DomainEvent(_)),
             "should be classified as DomainEvent"
         );
+    }
+
+    #[test]
+    fn test_domain_event_past_tense_suffix_no_event_word() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        // InvoiceFinalized has no "Event" suffix but is past-tense — should be a DomainEvent.
+        let content = r#"
+package events
+
+type InvoiceFinalized struct {
+    InvoiceID string
+    Amount    float64
+}
+"#;
+        let path = PathBuf::from("internal/domain/events/invoice.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let event = components.iter().find(|c| c.name == "InvoiceFinalized");
+        assert!(event.is_some(), "should find InvoiceFinalized");
+        assert!(
+            matches!(event.unwrap().kind, ComponentKind::DomainEvent(_)),
+            "past-tense struct in domain/events/ must be DomainEvent; got {:?}",
+            event.unwrap().kind
+        );
+    }
+
+    #[test]
+    fn test_anemic_entity_flagged_after_method_association() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        // LineItem has an ID field but no methods — it is an anemic entity.
+        let content = r#"
+package models
+
+type LineItem struct {
+    ID       string
+    Quantity int
+    Price    float64
+}
+"#;
+        let path = PathBuf::from("internal/domain/models/line_item.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let entity = components.iter().find(|c| c.name == "LineItem");
+        assert!(entity.is_some(), "should find LineItem");
+        if let ComponentKind::Entity(ref info) = entity.unwrap().kind {
+            assert!(
+                info.is_anemic_domain_model,
+                "LineItem with ID but no methods must be flagged as anemic"
+            );
+        } else {
+            panic!("expected Entity kind; got {:?}", entity.unwrap().kind);
+        }
+    }
+
+    #[test]
+    fn test_entity_with_methods_not_flagged_anemic() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        // Invoice has an ID field AND methods — it is a rich entity, NOT anemic.
+        let content = r#"
+package models
+
+type Invoice struct {
+    ID     string
+    Status string
+}
+
+func (i *Invoice) Finalize() error {
+    return nil
+}
+"#;
+        let path = PathBuf::from("internal/domain/models/invoice.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let entity = components.iter().find(|c| c.name == "Invoice");
+        assert!(entity.is_some(), "should find Invoice");
+        if let ComponentKind::Entity(ref info) = entity.unwrap().kind {
+            assert!(
+                !info.is_anemic_domain_model,
+                "Invoice with methods must NOT be flagged as anemic"
+            );
+        } else {
+            panic!("expected Entity kind; got {:?}", entity.unwrap().kind);
+        }
     }
 
     #[test]

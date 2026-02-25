@@ -345,7 +345,7 @@ fn extract_structs(query: &Query, parsed: &ParsedFile, pkg: &str, components: &m
             continue;
         }
 
-        let kind = classify_struct_kind(&name, &fields);
+        let kind = classify_struct_kind(&name, &fields, &parsed.path.to_string_lossy());
 
         components.push(Component {
             id: ComponentId::new(pkg, &name),
@@ -447,9 +447,52 @@ fn is_active_record(methods: &[MethodInfo]) -> bool {
         >= 2
 }
 
-/// Classify a struct by its name suffix heuristic.
-fn classify_struct_kind(name: &str, fields: &[FieldInfo]) -> ComponentKind {
+/// Classify a struct using name heuristics combined with file path context.
+///
+/// Infrastructure-layer checks run first so that unexported concrete types and
+/// explicitly-named adapters (Processor, Client, Gateway, Provider) are caught
+/// before falling through to the generic domain-layer heuristics.
+///
+/// Handler/Controller structs in the infrastructure layer are intentionally NOT
+/// caught here — `pipeline::reclassify_infra_handlers` handles them after layer
+/// assignment, which is the appropriate place for that post-processing step.
+fn classify_struct_kind(name: &str, fields: &[FieldInfo], file_path: &str) -> ComponentKind {
     let lower = name.to_lowercase();
+
+    // ── Infrastructure layer ──────────────────────────────────────────────────
+    // Check before generic heuristics so that infra-layer structs whose names
+    // coincidentally look like services (e.g. mailgunNotificationService) are
+    // classified as adapters rather than domain services.
+    if file_path.contains("infrastructure/") {
+        // Repository is the most specific subtype — check first.
+        if lower.ends_with("repository") || lower.ends_with("repo") {
+            return ComponentKind::Repository;
+        }
+
+        // Unexported concrete struct: canonical Go adapter pattern.
+        // e.g. mongoInvoiceRepository, stripePaymentProcessor
+        if name.starts_with(|c: char| c.is_lowercase()) {
+            return ComponentKind::Adapter(AdapterInfo {
+                name: name.to_string(),
+                implements: Vec::new(),
+            });
+        }
+
+        // Exported struct with explicit adapter suffix.
+        if lower.ends_with("processor")
+            || lower.ends_with("client")
+            || lower.ends_with("gateway")
+            || lower.ends_with("adapter")
+            || lower.ends_with("provider")
+        {
+            return ComponentKind::Adapter(AdapterInfo {
+                name: name.to_string(),
+                implements: Vec::new(),
+            });
+        }
+    }
+
+    // ── Generic name-based classification (layer-agnostic) ───────────────────
     if lower.ends_with("repository") || lower.ends_with("repo") {
         ComponentKind::Repository
     } else if lower.ends_with("service") || lower.ends_with("svc") {
@@ -457,7 +500,6 @@ fn classify_struct_kind(name: &str, fields: &[FieldInfo]) -> ComponentKind {
     } else if lower.ends_with("usecase") || lower.ends_with("interactor") {
         ComponentKind::UseCase
     } else if lower.ends_with("event") {
-        // Domain event detection
         ComponentKind::DomainEvent(EventInfo {
             name: name.to_string(),
             fields: fields.to_vec(),
@@ -468,7 +510,7 @@ fn classify_struct_kind(name: &str, fields: &[FieldInfo]) -> ComponentKind {
             fl == "id" || fl == "uuid"
         })
     {
-        // Value object heuristic: no identity field
+        // Value object heuristic: has fields but no identity field.
         ComponentKind::ValueObject
     } else {
         ComponentKind::Entity(EntityInfo {

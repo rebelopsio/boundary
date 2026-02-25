@@ -9,6 +9,7 @@
 ///
 /// A test is allowed to be skipped (not failed) when the clone fails due to
 /// network unavailability, so external flakiness never blocks local work.
+use std::fs;
 use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
@@ -188,5 +189,103 @@ fn go_hexagonal_no_domain_to_infra_violations() {
         "domain layer must not import from infrastructure; found {} violation(s): {:?}",
         domain_to_infra.len(),
         domain_to_infra
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Sairyss/domain-driven-hexagon
+// TypeScript/NestJS DDD + Hexagonal with CQRS, vertical slices, PostgreSQL.
+//
+// This repo uses non-standard directory names for its layers:
+//   src/modules/<ctx>/domain/    → Domain    (value objects, entities)
+//   src/modules/<ctx>/commands/  → Application (use cases, CQRS commands)
+//   src/modules/<ctx>/queries/   → Application (CQRS queries)
+//   src/modules/<ctx>/database/  → Infrastructure (repository adapters)
+//   src/libs/                    → Cross-cutting (shared DDD primitives)
+//
+// A minimal .boundary.toml is written to the clone root before analysis so
+// that boundary classifies the vertical-slice structure correctly. This also
+// exercises boundary's TypeScript analyzer on a real production-grade project.
+// ---------------------------------------------------------------------------
+
+/// Write a minimal .boundary.toml into the cloned repo root so boundary can
+/// classify the vertical-slice directory structure correctly.
+fn write_ts_boundary_config(dir: &Path) {
+    let config = r#"
+[project]
+languages = ["typescript"]
+
+[layers]
+domain         = ["**/domain/**"]
+application    = ["**/commands/**", "**/queries/**"]
+infrastructure = ["**/database/**"]
+cross_cutting  = ["**/libs/**", "**/configs/**", "**/dtos/**", "**/mappers/**"]
+"#;
+    fs::write(dir.join(".boundary.toml"), config.trim_start())
+        .expect("failed to write .boundary.toml");
+}
+
+/// Domain layer must contain components (value objects, entities).
+/// Zero domain components means the TypeScript extractor is broken or the
+/// layer patterns don't match the repo's domain/ directories.
+#[test]
+#[ignore = "requires network"]
+fn ts_ddd_hexagon_domain_has_components() {
+    let Some(dir) = shallow_clone("https://github.com/Sairyss/domain-driven-hexagon") else {
+        return;
+    };
+    write_ts_boundary_config(dir.path());
+    let result = analyze_json(dir.path());
+    let by_layer = &result["metrics"]["components_by_layer"];
+
+    let domain = by_layer["domain"].as_u64().unwrap_or(0);
+    assert!(
+        domain >= 1,
+        "expected >= 1 domain component (value objects / entities in domain/); got {domain}"
+    );
+}
+
+/// Infrastructure layer must contain repository adapter components.
+/// Zero infrastructure components means database/ is not matched or
+/// TypeScript class extraction is broken.
+#[test]
+#[ignore = "requires network"]
+fn ts_ddd_hexagon_infrastructure_has_repositories() {
+    let Some(dir) = shallow_clone("https://github.com/Sairyss/domain-driven-hexagon") else {
+        return;
+    };
+    write_ts_boundary_config(dir.path());
+    let result = analyze_json(dir.path());
+    let by_layer = &result["metrics"]["components_by_layer"];
+
+    let infra = by_layer["infrastructure"].as_u64().unwrap_or(0);
+    assert!(
+        infra >= 1,
+        "expected >= 1 infrastructure component (UserRepository in database/); got {infra}"
+    );
+}
+
+/// Structural presence must be > 0% — at least some components must be
+/// classified into a layer. Zero presence means all components are unclassified,
+/// indicating the layer patterns or TypeScript extractor are not working.
+#[test]
+#[ignore = "requires network"]
+fn ts_ddd_hexagon_structural_presence_nonzero() {
+    let Some(dir) = shallow_clone("https://github.com/Sairyss/domain-driven-hexagon") else {
+        return;
+    };
+    write_ts_boundary_config(dir.path());
+    let result = analyze_json(dir.path());
+
+    // component_count includes synthetic nodes; check by_layer total instead.
+    let by_layer = &result["metrics"]["components_by_layer"];
+    let classified: u64 = ["domain", "application", "infrastructure", "presentation"]
+        .iter()
+        .map(|l| by_layer[l].as_u64().unwrap_or(0))
+        .sum();
+
+    assert!(
+        classified >= 2,
+        "expected >= 2 classified components across all layers; got {classified}"
     );
 }

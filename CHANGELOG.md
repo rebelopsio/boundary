@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/rebelopsio/boundary/compare/v0.18.3...v0.19.0) (2026-02-25)
+
+
+### Features
+
+* add file-path context to classify_struct_kind for infra adapter detection ([#85](https://github.com/rebelopsio/boundary/issues/85)) ([cccd45d](https://github.com/rebelopsio/boundary/commit/cccd45d166baef4f6d2aeba11337e49126a19bcb))
+
 ## [0.18.3](https://github.com/rebelopsio/boundary/compare/v0.18.2...v0.18.3) (2026-02-24)
 
 

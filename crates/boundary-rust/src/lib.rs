@@ -380,6 +380,7 @@ fn classify_struct_kind(name: &str, fields: &[FieldInfo]) -> ComponentKind {
             fields: fields.to_vec(),
             methods: Vec::new(),
             is_active_record: false,
+            is_anemic_domain_model: false,
         })
     }
 }

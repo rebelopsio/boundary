@@ -389,6 +389,7 @@ fn classify_class_kind(name: &str, implements: &[String]) -> ComponentKind {
             fields: vec![],
             methods: Vec::new(),
             is_active_record: false,
+            is_anemic_domain_model: false,
         })
     }
 }

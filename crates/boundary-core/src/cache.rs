@@ -186,6 +186,7 @@ mod tests {
                 fields: vec![],
                 methods: vec![],
                 is_active_record: false,
+                is_anemic_domain_model: false,
             }),
             layer: None,
             location: SourceLocation {

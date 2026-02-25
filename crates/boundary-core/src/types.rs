@@ -139,6 +139,12 @@ pub struct EntityInfo {
     pub methods: Vec<MethodInfo>,
     #[serde(default)]
     pub is_active_record: bool,
+    /// True when the entity has an identity field but no domain methods.
+    /// Indicates an anemic domain model — a struct that holds data but
+    /// delegates all behaviour to services, violating DDD principles.
+    /// Set during the method-association pass, not during initial classification.
+    #[serde(default)]
+    pub is_anemic_domain_model: bool,
 }
 
 /// A discovered architectural component

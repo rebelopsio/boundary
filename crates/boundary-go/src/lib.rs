@@ -345,7 +345,12 @@ fn extract_structs(query: &Query, parsed: &ParsedFile, pkg: &str, components: &m
             continue;
         }
 
-        let kind = classify_struct_kind(&name, &fields, &parsed.path.to_string_lossy());
+        let kind = classify_struct_kind(
+            &name,
+            &fields,
+            &parsed.path.to_string_lossy(),
+            &parsed.content,
+        );
 
         components.push(Component {
             id: ComponentId::new(pkg, &name),
@@ -456,22 +461,59 @@ fn is_active_record(methods: &[MethodInfo]) -> bool {
 /// Handler/Controller structs in the infrastructure layer are intentionally NOT
 /// caught here — `pipeline::reclassify_infra_handlers` handles them after layer
 /// assignment, which is the appropriate place for that post-processing step.
-fn classify_struct_kind(name: &str, fields: &[FieldInfo], file_path: &str) -> ComponentKind {
+/// Returns the PascalCase form of a Go unexported name by uppercasing the first character.
+/// e.g. `mongoInvoiceRepository` → `MongoInvoiceRepository`
+fn to_pascal_case(name: &str) -> String {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
+/// Returns true if the file contains a `func New<PascalName>(` declaration.
+///
+/// This is a fast text-search check (not a full parse) used to distinguish
+/// real adapter structs — which follow the Go convention of pairing an
+/// unexported type with an exported constructor — from internal utility types
+/// such as DTO/document models that happen to be unexported.
+fn has_constructor_for_struct(struct_name: &str, file_content: &str) -> bool {
+    let pattern = format!("func New{}(", to_pascal_case(struct_name));
+    file_content.contains(&pattern)
+}
+
+/// Classify a struct using name heuristics combined with file path and content context.
+///
+/// Infrastructure-layer checks run first. For unexported structs a constructor
+/// check (`func New<Name>(`) gates Adapter classification, filtering out internal
+/// utility types (DTOs, document models) that have no exported constructor.
+///
+/// Handler/Controller structs in the infrastructure layer are intentionally NOT
+/// caught here — `pipeline::reclassify_infra_handlers` handles them after layer
+/// assignment, which is the appropriate place for that post-processing step.
+fn classify_struct_kind(
+    name: &str,
+    fields: &[FieldInfo],
+    file_path: &str,
+    file_content: &str,
+) -> ComponentKind {
     let lower = name.to_lowercase();
 
     // ── Infrastructure layer ──────────────────────────────────────────────────
-    // Check before generic heuristics so that infra-layer structs whose names
-    // coincidentally look like services (e.g. mailgunNotificationService) are
-    // classified as adapters rather than domain services.
     if file_path.contains("infrastructure/") {
         // Repository is the most specific subtype — check first.
         if lower.ends_with("repository") || lower.ends_with("repo") {
             return ComponentKind::Repository;
         }
 
-        // Unexported concrete struct: canonical Go adapter pattern.
-        // e.g. mongoInvoiceRepository, stripePaymentProcessor
-        if name.starts_with(|c: char| c.is_lowercase()) {
+        // Unexported concrete struct: only classify as Adapter when a matching
+        // New<PascalName>() constructor exists in the same file. Without a
+        // constructor the struct is an internal utility (DTO, document model,
+        // etc.) and should not be counted as an adapter. Structs without a
+        // constructor fall through to generic classification below.
+        if name.starts_with(|c: char| c.is_lowercase())
+            && has_constructor_for_struct(name, file_content)
+        {
             return ComponentKind::Adapter(AdapterInfo {
                 name: name.to_string(),
                 implements: Vec::new(),
@@ -479,11 +521,18 @@ fn classify_struct_kind(name: &str, fields: &[FieldInfo], file_path: &str) -> Co
         }
 
         // Exported struct with explicit adapter suffix.
+        // "service" is included here because infrastructure-layer service structs
+        // (e.g. MailGunNotificationService) are technology adapters, not domain
+        // services — the infrastructure block takes precedence over the generic
+        // service heuristic that applies to domain/application layers.
         if lower.ends_with("processor")
             || lower.ends_with("client")
             || lower.ends_with("gateway")
             || lower.ends_with("adapter")
             || lower.ends_with("provider")
+            || lower.ends_with("publisher")
+            || lower.ends_with("bus")
+            || lower.ends_with("service")
         {
             return ComponentKind::Adapter(AdapterInfo {
                 name: name.to_string(),
@@ -967,6 +1016,66 @@ type mongoRepo struct {
             matches!(repo.unwrap().kind, ComponentKind::Repository),
             "mongoRepo should be classified as Repository; got {:?}",
             repo.unwrap().kind
+        );
+    }
+
+    #[test]
+    fn test_unexported_infra_struct_with_constructor_is_adapter() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        // stripePaymentProcessor is unexported but has a matching New* constructor —
+        // it should be classified as Adapter.
+        let content = r#"
+package infrastructure
+
+type stripePaymentProcessor struct {
+    apiKey string
+}
+
+func NewStripePaymentProcessor(apiKey string) ports.PaymentProcessor {
+    return &stripePaymentProcessor{apiKey: apiKey}
+}
+"#;
+        let path = PathBuf::from("internal/infrastructure/stripe/processor.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let adapter = components
+            .iter()
+            .find(|c| c.name == "stripePaymentProcessor");
+        assert!(
+            adapter.is_some(),
+            "stripePaymentProcessor should be extracted"
+        );
+        assert!(
+            matches!(adapter.unwrap().kind, ComponentKind::Adapter(_)),
+            "stripePaymentProcessor with New* constructor must be Adapter; got {:?}",
+            adapter.unwrap().kind
+        );
+    }
+
+    #[test]
+    fn test_unexported_infra_struct_without_constructor_is_not_adapter() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        // invoiceDocument is an unexported infrastructure utility (MongoDB document
+        // model / DTO) with no New* constructor. It must NOT be classified as Adapter.
+        let content = r#"
+package infrastructure
+
+type invoiceDocument struct {
+    ID     string
+    Status string
+}
+"#;
+        let path = PathBuf::from("internal/infrastructure/mongodb/models.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let doc = components.iter().find(|c| c.name == "invoiceDocument");
+        assert!(doc.is_some(), "invoiceDocument should be extracted");
+        assert!(
+            !matches!(doc.unwrap().kind, ComponentKind::Adapter(_)),
+            "invoiceDocument with no constructor must NOT be Adapter; got {:?}",
+            doc.unwrap().kind
         );
     }
 

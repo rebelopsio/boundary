@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/rebelopsio/boundary/compare/v0.20.0...v0.21.0) (2026-02-25)
+
+
+### Features
+
+* **go:** detect anemic domain models and improve domain event classification ([#89](https://github.com/rebelopsio/boundary/issues/89)) ([fb51bde](https://github.com/rebelopsio/boundary/commit/fb51bded8fa7574458491f5fbb59309c3cae4bd8))
+
 ## [0.20.0](https://github.com/rebelopsio/boundary/compare/v0.19.0...v0.20.0) (2026-02-25)
 
 

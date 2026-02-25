@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/rebelopsio/boundary/compare/v0.19.0...v0.20.0) (2026-02-25)
+
+
+### Features
+
+* **go:** gate unexported adapter detection on constructor presence ([#87](https://github.com/rebelopsio/boundary/issues/87)) ([d8ec1ac](https://github.com/rebelopsio/boundary/commit/d8ec1ac54b3974e8ce0315620280f9a2ab91058e))
+
 ## [0.19.0](https://github.com/rebelopsio/boundary/compare/v0.18.3...v0.19.0) (2026-02-25)
 
 

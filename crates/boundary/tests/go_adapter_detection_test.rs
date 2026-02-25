@@ -1,8 +1,13 @@
-/// Acceptance tests for Go adapter/port detection (two-bug fix).
+/// Acceptance tests for Go adapter/port detection.
 ///
-/// These tests cover:
-///   Bug 1 — application-layer *Handler structs must NOT be counted as adapters.
-///   Bug 2 — unexported structs (e.g. mongoUserRepository) must be included as real components.
+/// Scenarios covered:
+///   1 — Application-layer *Handler structs must NOT be counted as adapters.
+///   2 — Infrastructure-layer *Handler structs ARE classified as adapters.
+///   3 — Unexported structs (e.g. mongoUserRepository) are real components.
+///   4 — Unexported adapters are counted toward interface_coverage.
+///   5 — No MissingPort violation for an unexported adapter paired with a port.
+///   6 — Constructor returning a qualified port type means no MissingPort violation.
+///   7 — Exported struct without adapter suffix is detected as adapter via constructor.
 ///
 /// Each test maps to a scenario in docs/features/go_adapter_detection.feature.
 /// Run `cargo test --test go_adapter_detection_test` to check the current state.
@@ -41,21 +46,24 @@ fn score_json(fixture_name: &str) -> serde_json::Value {
 /// Scenario 1: Application-layer *Handler struct is NOT counted as an adapter.
 ///
 /// UserHandler lives in application/handler.go.  It should be classified as
-/// an Entity or ValueObject — not an Adapter — so it does not appear under
-/// the "adapter" key in components_by_kind.
+/// an Entity or ValueObject — not an Adapter — so it does not appear as an
+/// adapter in the component list.
 #[test]
 fn application_handler_not_counted_as_adapter() {
     let result = analyze_json("fr-go-adapters");
-    // components_by_kind is nested under metrics
-    let by_kind = &result["metrics"]["components_by_kind"];
+    let components = result["components"].as_array().cloned().unwrap_or_default();
 
-    // If there is an "adapter" count, it should come only from WebhookHandler (1 adapter).
-    // UserHandler must NOT inflate it.
-    let adapter_count = by_kind["adapter"].as_u64().unwrap_or(0);
+    // UserHandler must never appear with kind "adapter", regardless of total count.
+    let user_handler_is_adapter = components.iter().any(|c| {
+        c["name"].as_str() == Some("UserHandler")
+            && c["kind"]
+                .as_object()
+                .map(|o| o.contains_key("Adapter"))
+                .unwrap_or(false)
+    });
     assert!(
-        adapter_count <= 1,
-        "at most 1 adapter (WebhookHandler) expected, got {adapter_count}; \
-        UserHandler in application layer must NOT be classified as adapter"
+        !user_handler_is_adapter,
+        "UserHandler in application layer must NOT be classified as adapter"
     );
 }
 
@@ -132,5 +140,75 @@ fn no_missing_port_violation_for_unexported_adapter() {
         !missing_port_for_mongo,
         "should not produce a MissingPort violation for mongoUserRepository; \
         it is paired with UserRepository port"
+    );
+}
+
+/// Scenario 6: Constructor returning a qualified port type results in no MissingPort violation.
+///
+/// `stripePaymentProcessor` has `func NewStripePaymentProcessor(...) domain.PaymentProcessor`.
+/// Because the constructor return type links it to the `PaymentProcessor` port in domain/ports.go,
+/// there must be no MissingPort violation for `stripePaymentProcessor`.
+///
+/// The adapter count must also increase to reflect both new fixture adapters.
+/// (`implements` and `confidence: High` are verified in unit tests — not accessible via CLI JSON.)
+#[test]
+fn constructor_populates_implements_for_adapter() {
+    let result = analyze_json("fr-go-adapters");
+
+    // Adapter count must include both new fixture adapters alongside WebhookHandler.
+    let by_kind = &result["metrics"]["components_by_kind"];
+    let adapter_count = by_kind["adapter"].as_u64().unwrap_or(0);
+    assert!(
+        adapter_count >= 3,
+        "expected at least 3 adapters (WebhookHandler + stripePaymentProcessor + CycleInfrastructureProvider), got {adapter_count}"
+    );
+
+    // stripePaymentProcessor must NOT produce a MissingPort violation — its constructor
+    // return type (`domain.PaymentProcessor`) links it to the PaymentProcessor port.
+    let violations = result["violations"].as_array().cloned().unwrap_or_default();
+    let missing_port_for_stripe = violations.iter().any(|v| {
+        v["kind"]
+            .as_object()
+            .map(|o| o.contains_key("MissingPort"))
+            .unwrap_or(false)
+            && v.to_string().contains("stripePaymentProcessor")
+    });
+    assert!(
+        !missing_port_for_stripe,
+        "stripePaymentProcessor paired with PaymentProcessor port must not produce MissingPort"
+    );
+}
+
+/// Scenario 7: Exported struct without any adapter suffix is classified as Adapter
+/// when its constructor returns a port interface.
+///
+/// `CycleInfrastructureProvider` in infrastructure/cycle/provider.go has no
+/// adapter-identifying name suffix but its constructor returns `domain.InfrastructureProvider`.
+/// Boundary must classify it as an adapter and not produce a MissingPort violation for it.
+#[test]
+fn exported_struct_with_port_constructor_classified_as_adapter() {
+    let result = analyze_json("fr-go-adapters");
+
+    // Adapter count must include CycleInfrastructureProvider.
+    let by_kind = &result["metrics"]["components_by_kind"];
+    let adapter_count = by_kind["adapter"].as_u64().unwrap_or(0);
+    assert!(
+        adapter_count >= 3,
+        "expected at least 3 adapters; CycleInfrastructureProvider must be classified as one, got {adapter_count}"
+    );
+
+    // CycleInfrastructureProvider must NOT produce a MissingPort violation —
+    // its constructor return type links it to the InfrastructureProvider port.
+    let violations = result["violations"].as_array().cloned().unwrap_or_default();
+    let missing_port_for_cycle = violations.iter().any(|v| {
+        v["kind"]
+            .as_object()
+            .map(|o| o.contains_key("MissingPort"))
+            .unwrap_or(false)
+            && v.to_string().contains("CycleInfrastructureProvider")
+    });
+    assert!(
+        !missing_port_for_cycle,
+        "CycleInfrastructureProvider paired with InfrastructureProvider port must not produce MissingPort"
     );
 }

@@ -7,6 +7,22 @@ use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator};
 use boundary_core::analyzer::{LanguageAnalyzer, ParsedFile};
 use boundary_core::types::*;
 
+/// Extracted constructor signature for a `New*()` function.
+///
+/// Only `return_type` is consumed during classification. The remaining fields
+/// (`function_name`, `inferred_struct`, `return_package`) are retained as
+/// scaffolding for future diagnostic output (e.g., reporting the constructor
+/// name when flagging a dependency inversion violation).
+struct ConstructorSignature {
+    #[allow(dead_code)]
+    function_name: String,
+    #[allow(dead_code)]
+    inferred_struct: String,
+    #[allow(dead_code)]
+    return_package: String,
+    return_type: String,
+}
+
 /// Active Record method name patterns.
 /// If a struct has 2+ methods matching these names, it's treated as Active Record.
 const ACTIVE_RECORD_METHODS: &[&str] = &[
@@ -22,6 +38,7 @@ pub struct GoAnalyzer {
     import_query: Query,
     method_query: Query,
     init_query: Query,
+    constructor_query: Query,
 }
 
 impl GoAnalyzer {
@@ -92,6 +109,32 @@ impl GoAnalyzer {
         )
         .context("failed to compile init query")?;
 
+        // Pattern 1: single qualified return   func New...() pkg.Type
+        // Pattern 2: multi-return parameter list  func New...() (pkg.Type, error)
+        // The `error` type is a plain type_identifier (no package qualifier) so the
+        // qualified_type pattern skips it automatically, extracting only the port name.
+        // NOTE: tree-sitter-go uses `name:` (not `type:`) for the type_identifier
+        // field inside qualified_type.
+        let constructor_query = Query::new(
+            &language,
+            r#"
+            (function_declaration
+              name: (identifier) @ctor_name
+              result: (qualified_type
+                package: (package_identifier) @return_pkg
+                name: (type_identifier) @return_type))
+
+            (function_declaration
+              name: (identifier) @ctor_name
+              result: (parameter_list
+                (parameter_declaration
+                  type: (qualified_type
+                    package: (package_identifier) @return_pkg
+                    name: (type_identifier) @return_type))))
+            "#,
+        )
+        .context("failed to compile constructor query")?;
+
         Ok(Self {
             language,
             interface_query,
@@ -99,6 +142,7 @@ impl GoAnalyzer {
             import_query,
             method_query,
             init_query,
+            constructor_query,
         })
     }
 }
@@ -134,8 +178,17 @@ impl LanguageAnalyzer for GoAnalyzer {
         // Extract interfaces (ports)
         extract_interfaces(&self.interface_query, parsed, &pkg, &mut components);
 
+        // Extract constructors BEFORE structs so classification can use return types
+        let constructors = extract_constructors(&self.constructor_query, parsed);
+
         // Extract structs
-        extract_structs(&self.struct_query, parsed, &pkg, &mut components);
+        extract_structs(
+            &self.struct_query,
+            parsed,
+            &pkg,
+            &constructors,
+            &mut components,
+        );
 
         // Extract methods and associate with receiver structs
         let methods = extract_methods(&self.method_query, parsed);
@@ -296,7 +349,13 @@ fn extract_interfaces(
     }
 }
 
-fn extract_structs(query: &Query, parsed: &ParsedFile, pkg: &str, components: &mut Vec<Component>) {
+fn extract_structs(
+    query: &Query,
+    parsed: &ParsedFile,
+    pkg: &str,
+    constructors: &HashMap<String, ConstructorSignature>,
+    components: &mut Vec<Component>,
+) {
     let mut cursor = QueryCursor::new();
     let name_idx = query
         .capture_names()
@@ -345,12 +404,8 @@ fn extract_structs(query: &Query, parsed: &ParsedFile, pkg: &str, components: &m
             continue;
         }
 
-        let kind = classify_struct_kind(
-            &name,
-            &fields,
-            &parsed.path.to_string_lossy(),
-            &parsed.content,
-        );
+        let kind =
+            classify_struct_kind(&name, &fields, &parsed.path.to_string_lossy(), constructors);
 
         components.push(Component {
             id: ComponentId::new(pkg, &name),
@@ -464,15 +519,6 @@ fn is_active_record(methods: &[MethodInfo]) -> bool {
         >= 2
 }
 
-/// Classify a struct using name heuristics combined with file path context.
-///
-/// Infrastructure-layer checks run first so that unexported concrete types and
-/// explicitly-named adapters (Processor, Client, Gateway, Provider) are caught
-/// before falling through to the generic domain-layer heuristics.
-///
-/// Handler/Controller structs in the infrastructure layer are intentionally NOT
-/// caught here — `pipeline::reclassify_infra_handlers` handles them after layer
-/// assignment, which is the appropriate place for that post-processing step.
 /// Returns the PascalCase form of a Go unexported name by uppercasing the first character.
 /// e.g. `mongoInvoiceRepository` → `MongoInvoiceRepository`
 fn to_pascal_case(name: &str) -> String {
@@ -483,15 +529,99 @@ fn to_pascal_case(name: &str) -> String {
     }
 }
 
-/// Returns true if the file contains a `func New<PascalName>(` declaration.
+/// Infer the struct name from a constructor function name.
 ///
-/// This is a fast text-search check (not a full parse) used to distinguish
-/// real adapter structs — which follow the Go convention of pairing an
-/// unexported type with an exported constructor — from internal utility types
-/// such as DTO/document models that happen to be unexported.
-fn has_constructor_for_struct(struct_name: &str, file_content: &str) -> bool {
-    let pattern = format!("func New{}(", to_pascal_case(struct_name));
-    file_content.contains(&pattern)
+/// `"NewStripePaymentProcessor"` → `"stripePaymentProcessor"`
+///
+/// Returns an empty string for names that don't start with `"New"`.
+fn infer_struct_from_constructor(ctor_name: &str) -> String {
+    let without_new = match ctor_name.strip_prefix("New") {
+        Some(s) if !s.is_empty() => s,
+        _ => return String::new(),
+    };
+    let mut chars = without_new.chars();
+    match chars.next() {
+        Some(first) => first.to_lowercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
+/// Extract constructor signatures from a parsed file.
+///
+/// Returns a map keyed by **both** the inferred lowercase struct name
+/// (`stripePaymentProcessor`) AND the PascalCase variant (`StripePaymentProcessor`).
+/// Dual-indexing ensures that both exported and unexported structs can be looked
+/// up via `constructors.get(name)` inside `classify_struct_kind`.
+fn extract_constructors(
+    query: &Query,
+    parsed: &ParsedFile,
+) -> HashMap<String, ConstructorSignature> {
+    let mut result: HashMap<String, ConstructorSignature> = HashMap::new();
+
+    let capture_names = query.capture_names();
+    let ctor_name_idx = capture_names.iter().position(|n| *n == "ctor_name");
+    let return_pkg_idx = capture_names.iter().position(|n| *n == "return_pkg");
+    let return_type_idx = capture_names.iter().position(|n| *n == "return_type");
+
+    let (Some(ctor_name_idx), Some(return_pkg_idx), Some(return_type_idx)) =
+        (ctor_name_idx, return_pkg_idx, return_type_idx)
+    else {
+        return result;
+    };
+
+    let mut cursor = QueryCursor::new();
+    let mut matches = cursor.matches(query, parsed.tree.root_node(), parsed.content.as_bytes());
+
+    while let Some(m) = matches.next() {
+        let mut ctor_name = String::new();
+        let mut return_pkg = String::new();
+        let mut return_type = String::new();
+
+        for capture in m.captures {
+            let idx = capture.index as usize;
+            if idx == ctor_name_idx {
+                ctor_name = node_text(capture.node, &parsed.content);
+            } else if idx == return_pkg_idx {
+                return_pkg = node_text(capture.node, &parsed.content);
+            } else if idx == return_type_idx {
+                return_type = node_text(capture.node, &parsed.content);
+            }
+        }
+
+        // tree-sitter cannot filter by name prefix, so we filter to New* here.
+        if !ctor_name.starts_with("New") || ctor_name.len() <= 3 {
+            continue;
+        }
+        if return_pkg.is_empty() || return_type.is_empty() {
+            continue;
+        }
+
+        let inferred = infer_struct_from_constructor(&ctor_name);
+        let pascal = to_pascal_case(&inferred);
+
+        // Dual-index: insert under the lowercase key (for unexported structs)
+        // and the PascalCase key (for exported structs). Both entries are independent
+        // clones — `inferred` and `pascal` are always different strings (one starts
+        // lowercase, the other uppercase), so neither `or_insert` ever skips.
+        result
+            .entry(inferred.clone())
+            .or_insert_with(|| ConstructorSignature {
+                function_name: ctor_name.clone(),
+                inferred_struct: inferred.clone(),
+                return_package: return_pkg.clone(),
+                return_type: return_type.clone(),
+            });
+        result
+            .entry(pascal.clone())
+            .or_insert_with(|| ConstructorSignature {
+                function_name: ctor_name.clone(),
+                inferred_struct: inferred.clone(),
+                return_package: return_pkg.clone(),
+                return_type: return_type.clone(),
+            });
+    }
+
+    result
 }
 
 /// Returns true when a lowercase struct name looks like a past-tense domain event.
@@ -537,11 +667,16 @@ fn is_domain_event_name(lower: &str) -> bool {
     PAST_TENSE_SUFFIXES.iter().any(|s| lower.ends_with(s))
 }
 
-/// Classify a struct using name heuristics combined with file path and content context.
+/// Classify a struct using name heuristics combined with file path and constructor context.
 ///
 /// Infrastructure-layer checks run first. For unexported structs a constructor
-/// check (`func New<Name>(`) gates Adapter classification, filtering out internal
-/// utility types (DTOs, document models) that have no exported constructor.
+/// lookup gates Adapter classification, and when found, populates `implements`
+/// with the port interface name and sets confidence to High.
+///
+/// Exported structs in the infrastructure layer are only classified as adapters
+/// when a constructor returning a port interface is found. There is intentionally
+/// no suffix-based fallback — an exported struct without a port-returning
+/// constructor is not an adapter and may indicate a dependency inversion violation.
 ///
 /// Handler/Controller structs in the infrastructure layer are intentionally NOT
 /// caught here — `pipeline::reclassify_infra_handlers` handles them after layer
@@ -550,50 +685,49 @@ fn classify_struct_kind(
     name: &str,
     fields: &[FieldInfo],
     file_path: &str,
-    file_content: &str,
+    constructors: &HashMap<String, ConstructorSignature>,
 ) -> ComponentKind {
     let lower = name.to_lowercase();
 
     // ── Infrastructure layer ──────────────────────────────────────────────────
     if file_path.contains("infrastructure/") {
-        // Repository is the most specific subtype — check first.
+        // Repository suffix — highest priority, checked before constructor lookup.
         if lower.ends_with("repository") || lower.ends_with("repo") {
             return ComponentKind::Repository;
         }
 
-        // Unexported concrete struct: only classify as Adapter when a matching
-        // New<PascalName>() constructor exists in the same file. Without a
-        // constructor the struct is an internal utility (DTO, document model,
-        // etc.) and should not be counted as an adapter. Structs without a
-        // constructor fall through to generic classification below.
-        if name.starts_with(|c: char| c.is_lowercase())
-            && has_constructor_for_struct(name, file_content)
-        {
+        // Constructor-based classification (High confidence).
+        // Covers both unexported structs (looked up by lowercase name) and exported
+        // structs (looked up by PascalCase name — dual-indexed in extract_constructors).
+        if let Some(ctor) = constructors.get(name) {
+            let port_name = ctor.return_type.clone();
+            return if port_name.to_lowercase().ends_with("repository")
+                || port_name.to_lowercase().ends_with("repo")
+            {
+                ComponentKind::Repository
+            } else {
+                ComponentKind::Adapter(AdapterInfo {
+                    name: name.to_string(),
+                    implements: vec![port_name],
+                    confidence: AdapterConfidence::High,
+                })
+            };
+        }
+
+        // Unexported struct with no constructor match — Medium confidence.
+        // These are unexported types in infrastructure that have no verified port
+        // relationship but are likely adapters by convention.
+        if name.starts_with(|c: char| c.is_lowercase()) {
             return ComponentKind::Adapter(AdapterInfo {
                 name: name.to_string(),
                 implements: Vec::new(),
+                confidence: AdapterConfidence::Medium,
             });
         }
 
-        // Exported struct with explicit adapter suffix.
-        // "service" is included here because infrastructure-layer service structs
-        // (e.g. MailGunNotificationService) are technology adapters, not domain
-        // services — the infrastructure block takes precedence over the generic
-        // service heuristic that applies to domain/application layers.
-        if lower.ends_with("processor")
-            || lower.ends_with("client")
-            || lower.ends_with("gateway")
-            || lower.ends_with("adapter")
-            || lower.ends_with("provider")
-            || lower.ends_with("publisher")
-            || lower.ends_with("bus")
-            || lower.ends_with("service")
-        {
-            return ComponentKind::Adapter(AdapterInfo {
-                name: name.to_string(),
-                implements: Vec::new(),
-            });
-        }
+        // NOTE: No suffix fallback. Exported structs without a port-returning
+        // constructor are not classified as adapters — they may represent a
+        // dependency inversion violation (returning concrete type instead of port).
     }
 
     // ── Domain events (path-based, before generic heuristics) ────────────────
@@ -1205,10 +1339,12 @@ func NewStripePaymentProcessor(apiKey string) ports.PaymentProcessor {
     }
 
     #[test]
-    fn test_unexported_infra_struct_without_constructor_is_not_adapter() {
+    fn test_unexported_infra_no_constructor_is_medium_confidence() {
         let analyzer = GoAnalyzer::new().unwrap();
-        // invoiceDocument is an unexported infrastructure utility (MongoDB document
-        // model / DTO) with no New* constructor. It must NOT be classified as Adapter.
+        // invoiceDocument is an unexported infrastructure struct with no New* constructor.
+        // It is classified as Adapter(Medium) — unexported infra types are assumed to be
+        // adapters by convention, but without a constructor we cannot verify the port
+        // relationship, so confidence is Medium (not High).
         let content = r#"
 package infrastructure
 
@@ -1223,11 +1359,20 @@ type invoiceDocument struct {
 
         let doc = components.iter().find(|c| c.name == "invoiceDocument");
         assert!(doc.is_some(), "invoiceDocument should be extracted");
-        assert!(
-            !matches!(doc.unwrap().kind, ComponentKind::Adapter(_)),
-            "invoiceDocument with no constructor must NOT be Adapter; got {:?}",
-            doc.unwrap().kind
-        );
+        match &doc.unwrap().kind {
+            ComponentKind::Adapter(info) => {
+                assert_eq!(
+                    info.confidence,
+                    AdapterConfidence::Medium,
+                    "invoiceDocument with no constructor must be Adapter(Medium)"
+                );
+                assert!(
+                    info.implements.is_empty(),
+                    "no port verified, implements must be empty"
+                );
+            }
+            other => panic!("invoiceDocument must be Adapter(Medium); got {:?}", other),
+        }
     }
 
     #[test]
@@ -1279,5 +1424,200 @@ type User struct {
             assert!(id_field.is_some());
             assert_eq!(id_field.unwrap().type_name, "string");
         }
+    }
+
+    // ── Phase 3: constructor-based adapter detection ──────────────────────────
+
+    #[test]
+    fn test_tree_sitter_constructor_query() {
+        // Validates three constructor patterns against the compiled query:
+        //   1. Single return:      func NewSingle() domain.PaymentProcessor
+        //   2. Multi-return:       func NewMulti() (domain.Repository, error)
+        //   3. Error-first multi:  func NewError() (error, domain.Adapter)
+        //      → `error` is a plain type_identifier, not qualified_type; query skips it
+        //        and still extracts "Adapter" from the second parameter.
+        let analyzer = GoAnalyzer::new().unwrap();
+        let content = r#"
+package infrastructure
+
+type singleImpl struct{}
+type multiImpl struct{}
+type errorImpl struct{}
+
+func NewSingle() domain.PaymentProcessor {
+    return &singleImpl{}
+}
+
+func NewMulti() (domain.Repository, error) {
+    return &multiImpl{}, nil
+}
+
+func NewError() (error, domain.Adapter) {
+    return nil, &errorImpl{}
+}
+"#;
+        let path = PathBuf::from("internal/infrastructure/test.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let constructors = extract_constructors(&analyzer.constructor_query, &parsed);
+
+        // NewSingle → inferred key "single" / "Single", return_type = "PaymentProcessor"
+        let single = constructors
+            .get("single")
+            .or_else(|| constructors.get("Single"));
+        assert!(
+            single.is_some(),
+            "NewSingle constructor not extracted; keys: {:?}",
+            constructors.keys().collect::<Vec<_>>()
+        );
+        assert_eq!(single.unwrap().return_type, "PaymentProcessor");
+
+        // NewMulti → inferred key "multi" / "Multi", return_type = "Repository"
+        let multi = constructors
+            .get("multi")
+            .or_else(|| constructors.get("Multi"));
+        assert!(multi.is_some(), "NewMulti constructor not extracted");
+        assert_eq!(multi.unwrap().return_type, "Repository");
+
+        // NewError → inferred key "error" / "Error", return_type = "Adapter"
+        // (error plain-type parameter is skipped; port qualified_type is found)
+        let err_ctor = constructors
+            .get("error")
+            .or_else(|| constructors.get("Error"));
+        assert!(err_ctor.is_some(), "NewError constructor not extracted");
+        assert_eq!(err_ctor.unwrap().return_type, "Adapter");
+    }
+
+    #[test]
+    fn test_infer_struct_from_constructor() {
+        assert_eq!(
+            infer_struct_from_constructor("NewStripePaymentProcessor"),
+            "stripePaymentProcessor"
+        );
+        assert_eq!(infer_struct_from_constructor("NewRepo"), "repo");
+        assert_eq!(infer_struct_from_constructor("New"), ""); // nothing after "New"
+        assert_eq!(infer_struct_from_constructor("Create"), ""); // no "New" prefix
+        assert_eq!(infer_struct_from_constructor(""), "");
+    }
+
+    #[test]
+    fn test_constructor_populates_implements() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        let content = r#"
+package infrastructure
+
+type stripePaymentProcessor struct{ apiKey string }
+
+func NewStripePaymentProcessor(apiKey string) domain.PaymentProcessor {
+    return &stripePaymentProcessor{apiKey: apiKey}
+}
+"#;
+        let path = PathBuf::from("internal/infrastructure/stripe/processor.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let adapter = components
+            .iter()
+            .find(|c| c.name == "stripePaymentProcessor");
+        assert!(adapter.is_some(), "stripePaymentProcessor not found");
+        match &adapter.unwrap().kind {
+            ComponentKind::Adapter(info) => {
+                assert_eq!(
+                    info.confidence,
+                    AdapterConfidence::High,
+                    "expected High confidence"
+                );
+                assert!(
+                    info.implements.contains(&"PaymentProcessor".to_string()),
+                    "implements must contain 'PaymentProcessor'; got {:?}",
+                    info.implements
+                );
+            }
+            other => panic!("expected Adapter, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_exported_struct_with_port_constructor_is_adapter() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        let content = r#"
+package infrastructure
+
+type CycleInfrastructureProvider struct{ client interface{} }
+
+func NewCycleInfrastructureProvider() domain.InfrastructureProvider {
+    return &CycleInfrastructureProvider{}
+}
+"#;
+        let path = PathBuf::from("internal/infrastructure/cycle/provider.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let adapter = components
+            .iter()
+            .find(|c| c.name == "CycleInfrastructureProvider");
+        assert!(adapter.is_some(), "CycleInfrastructureProvider not found");
+        assert!(
+            matches!(adapter.unwrap().kind, ComponentKind::Adapter(_)),
+            "CycleInfrastructureProvider with port constructor must be Adapter; got {:?}",
+            adapter.unwrap().kind
+        );
+    }
+
+    #[test]
+    fn test_constructor_with_multi_return_populates_implements() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        let content = r#"
+package infrastructure
+
+type mailgunNotificationService struct{}
+
+func NewMailgunNotificationService() (ports.NotificationService, error) {
+    return &mailgunNotificationService{}, nil
+}
+"#;
+        let path = PathBuf::from("internal/infrastructure/notification/service.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let adapter = components
+            .iter()
+            .find(|c| c.name == "mailgunNotificationService");
+        assert!(adapter.is_some(), "mailgunNotificationService not found");
+        match &adapter.unwrap().kind {
+            ComponentKind::Adapter(info) => {
+                assert_eq!(info.confidence, AdapterConfidence::High);
+                assert!(
+                    info.implements.contains(&"NotificationService".to_string()),
+                    "implements must contain 'NotificationService'; got {:?}",
+                    info.implements
+                );
+            }
+            other => panic!("expected Adapter, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_constructor_repository_return_classifies_as_repository() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        let content = r#"
+package infrastructure
+
+type postgresInvoiceStore struct{}
+
+func NewPostgresInvoiceStore() ports.InvoiceRepository {
+    return &postgresInvoiceStore{}
+}
+"#;
+        let path = PathBuf::from("internal/infrastructure/postgres/invoice.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let repo = components.iter().find(|c| c.name == "postgresInvoiceStore");
+        assert!(repo.is_some(), "postgresInvoiceStore not found");
+        assert!(
+            matches!(repo.unwrap().kind, ComponentKind::Repository),
+            "constructor returning InvoiceRepository must yield Repository kind; got {:?}",
+            repo.unwrap().kind
+        );
     }
 }

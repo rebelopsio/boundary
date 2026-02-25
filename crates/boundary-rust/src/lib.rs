@@ -340,6 +340,7 @@ fn enrich_with_impls(
                         comp.kind = ComponentKind::Adapter(AdapterInfo {
                             name: type_name.clone(),
                             implements: vec![trait_name.clone()],
+                            confidence: AdapterConfidence::default(),
                         });
                     }
                 }
@@ -359,6 +360,7 @@ fn classify_struct_kind(name: &str, fields: &[FieldInfo]) -> ComponentKind {
         ComponentKind::Adapter(AdapterInfo {
             name: name.to_string(),
             implements: Vec::new(),
+            confidence: AdapterConfidence::default(),
         })
     } else if lower.ends_with("usecase") || lower.ends_with("interactor") {
         ComponentKind::UseCase

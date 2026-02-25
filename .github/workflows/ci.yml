@@ -58,6 +58,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --all
 
+  smoke:
+    name: Smoke Tests (real-world repos)
+    # Run on every PR and push to main for early regression feedback.
+    # Not a required ruleset check — external repo flakiness must not block merges.
+    if: "!startsWith(github.head_ref, 'release-please--')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --test smoke_test -- --include-ignored
+
   build:
     name: Build (release)
     runs-on: ubuntu-latest

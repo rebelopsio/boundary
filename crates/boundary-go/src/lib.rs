@@ -714,20 +714,10 @@ fn classify_struct_kind(
             };
         }
 
-        // Unexported struct with no constructor match — Medium confidence.
-        // These are unexported types in infrastructure that have no verified port
-        // relationship but are likely adapters by convention.
-        if name.starts_with(|c: char| c.is_lowercase()) {
-            return ComponentKind::Adapter(AdapterInfo {
-                name: name.to_string(),
-                implements: Vec::new(),
-                confidence: AdapterConfidence::Medium,
-            });
-        }
-
-        // NOTE: No suffix fallback. Exported structs without a port-returning
-        // constructor are not classified as adapters — they may represent a
-        // dependency inversion violation (returning concrete type instead of port).
+        // No fallback. Unexported structs without a port-returning constructor
+        // are not classified as adapters — they fall through to other classification
+        // logic. Exported structs without a constructor may represent a dependency
+        // inversion violation (returning concrete type instead of port).
     }
 
     // ── Domain events (path-based, before generic heuristics) ────────────────
@@ -1339,12 +1329,11 @@ func NewStripePaymentProcessor(apiKey string) ports.PaymentProcessor {
     }
 
     #[test]
-    fn test_unexported_infra_no_constructor_is_medium_confidence() {
+    fn test_unexported_infra_no_constructor_is_not_adapter() {
         let analyzer = GoAnalyzer::new().unwrap();
         // invoiceDocument is an unexported infrastructure struct with no New* constructor.
-        // It is classified as Adapter(Medium) — unexported infra types are assumed to be
-        // adapters by convention, but without a constructor we cannot verify the port
-        // relationship, so confidence is Medium (not High).
+        // Without a constructor returning a port interface, it must NOT be classified as
+        // an adapter — it falls through to other classification logic (e.g. ValueObject).
         let content = r#"
 package infrastructure
 
@@ -1359,20 +1348,12 @@ type invoiceDocument struct {
 
         let doc = components.iter().find(|c| c.name == "invoiceDocument");
         assert!(doc.is_some(), "invoiceDocument should be extracted");
-        match &doc.unwrap().kind {
-            ComponentKind::Adapter(info) => {
-                assert_eq!(
-                    info.confidence,
-                    AdapterConfidence::Medium,
-                    "invoiceDocument with no constructor must be Adapter(Medium)"
-                );
-                assert!(
-                    info.implements.is_empty(),
-                    "no port verified, implements must be empty"
-                );
-            }
-            other => panic!("invoiceDocument must be Adapter(Medium); got {:?}", other),
-        }
+        let is_adapter = matches!(&doc.unwrap().kind, ComponentKind::Adapter(_));
+        assert!(
+            !is_adapter,
+            "invoiceDocument with no port-returning constructor must NOT be classified as Adapter; got {:?}",
+            doc.unwrap().kind
+        );
     }
 
     #[test]

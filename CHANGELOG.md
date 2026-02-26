@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.1](https://github.com/rebelopsio/boundary/compare/v0.22.0...v0.22.1) (2026-02-26)
+
+
+### Bug Fixes
+
+* **go:** remove Medium-confidence unexported adapter fallback ([#93](https://github.com/rebelopsio/boundary/issues/93)) ([f6cf33d](https://github.com/rebelopsio/boundary/commit/f6cf33dbf85b2ae1ae452d88b6cddc2e75cefcf0))
+
 ## [0.22.0](https://github.com/rebelopsio/boundary/compare/v0.21.0...v0.22.0) (2026-02-26)
 
 

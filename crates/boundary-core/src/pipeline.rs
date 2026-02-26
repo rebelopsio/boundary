@@ -13,7 +13,8 @@ use crate::graph::DependencyGraph;
 use crate::layer::LayerClassifier;
 use crate::metrics;
 use crate::types::{
-    AdapterInfo, ArchLayer, ArchitectureMode, Component, ComponentKind, Dependency, DependencyKind,
+    AdapterConfidence, AdapterInfo, ArchLayer, ArchitectureMode, Component, ComponentKind,
+    Dependency, DependencyKind,
 };
 
 /// Full analysis output including the graph for diagram generation.
@@ -64,6 +65,8 @@ pub fn reclassify_infra_handlers(comp: &mut Component) {
         comp.kind = ComponentKind::Adapter(AdapterInfo {
             name: comp.name.clone(),
             implements: Vec::new(),
+            // Medium: reclassified by name suffix alone, no constructor proof.
+            confidence: AdapterConfidence::Medium,
         });
     }
 }

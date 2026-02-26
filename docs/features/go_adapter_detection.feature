@@ -30,3 +30,18 @@ Feature: Go Adapter Detection
     And "domain/ports.go" defines a UserRepository port interface
     When I run "boundary analyze ."
     Then boundary reports no violations for the mongoUserRepository adapter
+
+  Scenario: An unexported adapter identified by its constructor is classified with High confidence
+    Given a Go module where "infrastructure/stripe/processor.go" contains an unexported stripePaymentProcessor struct
+    And the module has a constructor that returns the PaymentProcessor port
+    And "domain/ports.go" defines a PaymentProcessor port interface
+    When I run "boundary analyze ."
+    Then stripePaymentProcessor is classified as an Adapter with confidence High
+    And boundary reports that stripePaymentProcessor implements PaymentProcessor
+
+  Scenario: An adapter is recognized even when its name does not follow a conventional suffix pattern
+    Given a Go module where "infrastructure/cycle/provider.go" contains an exported CycleInfrastructureProvider struct
+    And the module has a constructor that returns the InfrastructureProvider port
+    And "domain/ports.go" defines an InfrastructureProvider port interface
+    When I run "boundary analyze ."
+    Then CycleInfrastructureProvider is classified as an Adapter with confidence High

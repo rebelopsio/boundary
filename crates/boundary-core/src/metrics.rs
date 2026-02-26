@@ -430,7 +430,17 @@ fn detect_pattern_violations(
             continue;
         }
 
-        // Check if there's a matching port name pattern
+        // When the constructor-based detection populated `implements`, use it as the
+        // authoritative signal — no name heuristic needed. This is the High-confidence
+        // path introduced in Phase 3 (constructor-based adapter detection).
+        let implements_port = matches!(&node.kind,
+            Some(ComponentKind::Adapter(info)) if !info.implements.is_empty()
+        );
+        if implements_port {
+            continue;
+        }
+
+        // Fallback: check if there's a matching port name pattern (name-heuristic path).
         let has_port = port_names.iter().any(|port| {
             let port_lower = port.to_lowercase();
 

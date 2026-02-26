@@ -124,11 +124,26 @@ pub struct PortInfo {
     pub methods: Vec<MethodInfo>,
 }
 
+/// Confidence level for adapter classification.
+///
+/// High means the constructor was found and its return type is a known port
+/// interface. Medium means the struct is unexported and in the infrastructure
+/// layer, but no constructor was found to verify the port relationship.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AdapterConfidence {
+    High,
+    #[default]
+    Medium,
+}
+
 /// Information about an adapter (implementation)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdapterInfo {
     pub name: String,
     pub implements: Vec<String>,
+    #[serde(default)]
+    pub confidence: AdapterConfidence,
 }
 
 /// Information about a domain entity

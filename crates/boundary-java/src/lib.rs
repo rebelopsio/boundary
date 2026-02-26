@@ -339,6 +339,7 @@ fn enrich_with_annotations(
                     comp.kind = ComponentKind::Adapter(AdapterInfo {
                         name: class_name,
                         implements: vec![],
+                        confidence: AdapterConfidence::default(),
                     });
                 }
                 _ => {}
@@ -358,6 +359,7 @@ fn classify_class_kind(name: &str, implements: &[String]) -> ComponentKind {
         ComponentKind::Adapter(AdapterInfo {
             name: name.to_string(),
             implements: implements.to_vec(),
+            confidence: AdapterConfidence::default(),
         })
     } else if lower.ends_with("usecase") || lower.ends_with("interactor") {
         ComponentKind::UseCase
@@ -365,6 +367,7 @@ fn classify_class_kind(name: &str, implements: &[String]) -> ComponentKind {
         ComponentKind::Adapter(AdapterInfo {
             name: name.to_string(),
             implements: implements.to_vec(),
+            confidence: AdapterConfidence::default(),
         })
     } else {
         ComponentKind::Entity(EntityInfo {

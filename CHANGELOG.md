@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/rebelopsio/boundary/compare/v0.21.0...v0.22.0) (2026-02-26)
+
+
+### Features
+
+* **go:** constructor-based adapter detection with confidence levels ([#91](https://github.com/rebelopsio/boundary/issues/91)) ([1c9be39](https://github.com/rebelopsio/boundary/commit/1c9be397cc88324a61b2991d24ff79472925d8d6))
+
 ## [0.21.0](https://github.com/rebelopsio/boundary/compare/v0.20.0...v0.21.0) (2026-02-25)
 
 

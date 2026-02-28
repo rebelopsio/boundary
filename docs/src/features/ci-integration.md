@@ -74,6 +74,22 @@ Use `--format json` for machine-readable output that other tools can consume:
 boundary check . --format json
 ```
 
+### Ignoring Rules
+
+Suppress specific violations by rule ID using `--ignore`. This is useful for known false
+positives or rules that don't apply to certain projects:
+
+```bash
+# Ignore missing-port warnings (e.g. for DTOs and utilities)
+boundary check . --ignore PA001
+
+# Ignore multiple rules
+boundary check . --ignore PA001,L005
+```
+
+Ignored violations are excluded before the pass/fail decision, so they won't cause CI
+failures. See [Rules & Rule IDs](./rules.md) for the full rule catalog.
+
 ### Evolution Tracking
 
 Track architecture scores over time:

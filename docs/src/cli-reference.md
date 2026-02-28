@@ -29,6 +29,7 @@ Options:
       --languages <LANGUAGES>  Languages to analyze (auto-detect if not specified)
       --incremental            Use incremental analysis (cache unchanged files)
       --per-service            Analyze each service independently (monorepo support)
+      --ignore <RULES>         Ignore specific rule IDs (comma-separated, e.g. PA001,L005)
 ```
 
 **Examples:**
@@ -45,6 +46,9 @@ boundary analyze . --languages go --incremental
 
 # Per-service monorepo analysis
 boundary analyze . --per-service
+
+# Suppress missing-port warnings
+boundary analyze . --ignore PA001
 ```
 
 ---
@@ -69,6 +73,7 @@ Options:
       --no-regression          Fail if architecture score regresses from last snapshot
       --incremental            Use incremental analysis (cache unchanged files)
       --per-service            Analyze each service independently (monorepo support)
+      --ignore <RULES>         Ignore specific rule IDs (comma-separated, e.g. PA001,L005)
 ```
 
 **Examples:**
@@ -79,6 +84,9 @@ boundary check . --format json --fail-on error
 
 # Track architecture evolution
 boundary check . --track --no-regression
+
+# Ignore false-positive missing-port warnings in CI
+boundary check . --ignore PA001
 ```
 
 ---

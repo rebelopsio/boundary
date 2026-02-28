@@ -12,6 +12,7 @@
 
 - [Layer Analysis](./features/layer-analysis.md)
 - [Architecture Modes](./features/architecture-modes.md)
+- [Rules & Rule IDs](./features/rules.md)
 - [Custom Rules](./features/custom-rules.md)
 - [Reports](./features/reports.md)
 - [Diagrams](./features/diagrams.md)

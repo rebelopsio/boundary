@@ -1,7 +1,7 @@
 use colored::Colorize;
 
 use boundary_core::metrics::AnalysisResult;
-use boundary_core::types::{Severity, ViolationKind};
+use boundary_core::types::Severity;
 
 /// Format a full analysis report for terminal output.
 pub fn format_report(result: &AnalysisResult) -> String {
@@ -180,35 +180,12 @@ pub fn format_report(result: &AnalysisResult) -> String {
                 Severity::Info => "INFO".blue().bold().to_string(),
             };
 
-            let kind_label = match &v.kind {
-                ViolationKind::LayerBoundary {
-                    from_layer,
-                    to_layer,
-                } => {
-                    format!("{from_layer} -> {to_layer}")
-                }
-                ViolationKind::CircularDependency { .. } => "circular dependency".to_string(),
-                ViolationKind::MissingPort { adapter_name } => {
-                    format!("missing port for {adapter_name}")
-                }
-                ViolationKind::CustomRule { rule_name } => {
-                    format!("custom: {rule_name}")
-                }
-                ViolationKind::DomainInfrastructureLeak { detail } => {
-                    format!("infra leak: {detail}")
-                }
-                ViolationKind::InitFunctionCoupling {
-                    from_layer,
-                    to_layer,
-                    ..
-                } => {
-                    format!("init coupling: {from_layer} -> {to_layer}")
-                }
-            };
+            let rule_id = v.kind.rule_id();
+            let rule_name = v.kind.name();
 
             out.push_str(&format!(
-                "\n  {} [{}] {}\n",
-                severity_str, kind_label, v.location,
+                "\n  {} {} [{}] {}\n",
+                rule_id, severity_str, rule_name, v.location,
             ));
             out.push_str(&format!("    {}\n", v.message));
             if let Some(ref suggestion) = v.suggestion {
@@ -346,8 +323,12 @@ pub fn format_multi_service_report(multi: &boundary_core::metrics::MultiServiceR
                     Severity::Info => "INFO".blue().bold().to_string(),
                 };
                 out.push_str(&format!(
-                    "    {} {} - {}\n",
-                    severity_str, v.location, v.message
+                    "    {} {} [{}] {} - {}\n",
+                    v.kind.rule_id(),
+                    severity_str,
+                    v.kind.name(),
+                    v.location,
+                    v.message
                 ));
             }
         }

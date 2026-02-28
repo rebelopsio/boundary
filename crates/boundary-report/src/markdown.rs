@@ -1,5 +1,5 @@
 use boundary_core::metrics::AnalysisResult;
-use boundary_core::types::{Severity, ViolationKind};
+use boundary_core::types::Severity;
 
 /// Format a full analysis report as Markdown.
 pub fn format_report(result: &AnalysisResult) -> String {
@@ -134,8 +134,8 @@ pub fn format_report(result: &AnalysisResult) -> String {
             "\n## Violations ({} found)\n\n",
             result.violations.len()
         ));
-        out.push_str("| Severity | Type | Location | Message |\n");
-        out.push_str("|----------|------|----------|--------|\n");
+        out.push_str("| Rule | Severity | Name | Location | Message |\n");
+        out.push_str("|------|----------|------|----------|--------|\n");
 
         for v in &result.violations {
             let severity = match v.severity {
@@ -144,31 +144,13 @@ pub fn format_report(result: &AnalysisResult) -> String {
                 Severity::Info => "INFO",
             };
 
-            let kind_label = match &v.kind {
-                ViolationKind::LayerBoundary {
-                    from_layer,
-                    to_layer,
-                } => format!("{from_layer} -> {to_layer}"),
-                ViolationKind::CircularDependency { .. } => "circular dependency".to_string(),
-                ViolationKind::MissingPort { adapter_name } => {
-                    format!("missing port for {adapter_name}")
-                }
-                ViolationKind::CustomRule { rule_name } => format!("custom: {rule_name}"),
-                ViolationKind::DomainInfrastructureLeak { detail } => {
-                    format!("infra leak: {detail}")
-                }
-                ViolationKind::InitFunctionCoupling {
-                    from_layer,
-                    to_layer,
-                    ..
-                } => {
-                    format!("init coupling: {from_layer} -> {to_layer}")
-                }
-            };
-
             out.push_str(&format!(
-                "| {} | {} | {} | {} |\n",
-                severity, kind_label, v.location, v.message
+                "| {} | {} | {} | {} | {} |\n",
+                v.kind.rule_id(),
+                severity,
+                v.kind.name(),
+                v.location,
+                v.message
             ));
         }
     }

@@ -1,0 +1,107 @@
+# Rule ID Specification
+
+## Overview
+
+Every violation emitted by Boundary carries a **rule ID** — a short, stable identifier that
+uniquely names the rule that was violated. Rule IDs enable:
+
+- Selective suppression of false positives via `--ignore`
+- CI/CD configuration per rule (Phase 2)
+- Trend tracking of specific violation types over time (Phase 2)
+
+## ID Format
+
+Rule IDs follow the pattern `{prefix}{number}`:
+
+| Prefix | Category | Examples |
+|--------|----------|----------|
+| `L` | Layer boundary violations | L001, L002 |
+| `D` | Dependency graph violations | D001 |
+| `PA` | Port/adapter violations | PA001 |
+| `C-` | Custom user-defined rules | C-no-logging-in-domain |
+
+Numbers are zero-padded to 3 digits. Custom rules use a hyphenated name instead of a number.
+
+## Rule Mapping (Phase 1)
+
+These rules map to existing `ViolationKind` variants — no new detection logic.
+
+| Rule ID | Name | ViolationKind | Default Severity |
+|---------|------|---------------|------------------|
+| L001 | domain-depends-on-infrastructure | `LayerBoundary { Domain, Infrastructure }` | Error |
+| L002 | domain-depends-on-application | `LayerBoundary { Domain, Application }` | Error |
+| L003 | application-bypasses-ports | `LayerBoundary { Application, Infrastructure }` | Error |
+| L004 | init-function-coupling | `InitFunctionCoupling` | Warning |
+| L005 | domain-uses-infrastructure-type | `DomainInfrastructureLeak` | Error |
+| L099 | layer-boundary-violation | `LayerBoundary { other combos }` | Error |
+| D001 | circular-dependency | `CircularDependency` | Error |
+| PA001 | missing-port-interface | `MissingPort` | Warning |
+| C-{name} | {name} | `CustomRule { name }` | (user-defined) |
+
+### Layer Boundary Specialization
+
+`LayerBoundary` violations are assigned specific IDs based on the `from_layer` → `to_layer`
+pair:
+
+- **Domain → Infrastructure** (L001): The most critical violation — domain logic depends
+  directly on infrastructure.
+- **Domain → Application** (L002): Domain should not depend on application orchestration.
+- **Application → Infrastructure** (L003): Application layer should use port interfaces, not
+  call infrastructure directly.
+- **All other combinations** (L099): Catch-all for less common layer violations (e.g.,
+  Domain → Presentation).
+
+## CLI Usage (Phase 1)
+
+```bash
+# Suppress specific rules
+boundary analyze . --ignore PA001
+boundary analyze . --ignore PA001,L005
+
+# Works with both analyze and check
+boundary check . --ignore PA001
+```
+
+The `--ignore` flag accepts a comma-separated list of rule IDs. Ignored violations are removed
+before output formatting and before the `check` pass/fail decision.
+
+## Output Format
+
+### Text
+
+```
+  L001 ERROR [domain-depends-on-infrastructure] domain/user.go:10
+    Domain component imports infrastructure package
+    Suggestion: Define a port interface in the domain layer
+```
+
+### JSON
+
+Each violation object includes `rule` and `rule_name` fields alongside existing fields:
+
+```json
+{
+  "rule": "L001",
+  "rule_name": "domain-depends-on-infrastructure",
+  "kind": { "LayerBoundary": { "from_layer": "domain", "to_layer": "infrastructure" } },
+  "severity": "error",
+  "location": { "file": "domain/user.go", "line": 10, "column": 1 },
+  "message": "Domain component imports infrastructure package",
+  "suggestion": "Define a port interface in the domain layer"
+}
+```
+
+### Markdown
+
+```markdown
+| Rule | Severity | Name | Location | Message |
+|------|----------|------|----------|---------|
+| L001 | ERROR | domain-depends-on-infrastructure | domain/user.go:10 | ... |
+```
+
+## Phase 2 (Future)
+
+- `.boundary.toml` rule configuration: severity overrides, path-specific ignores
+- Documentation URLs on violations
+- New detection rules: PA002 (port-without-implementation), PA003 (constructor-returns-concrete)
+- Historical tracking / violation trend comparison

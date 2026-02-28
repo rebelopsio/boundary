@@ -96,7 +96,16 @@ show meaningful confidence for multiple patterns simultaneously.
 
 #### Violations
 
-All violations in a table, with severity, type, location, and message.
+All violations in a table, with rule ID, severity, rule name, location, and message.
+
+```markdown
+| Rule | Severity | Name | Location | Message |
+|------|----------|------|----------|---------|
+| L001 | ERROR | domain-depends-on-infrastructure | domain/user.go:10 | Domain depends on infra |
+| PA001 | WARN | missing-port-interface | infrastructure/repo.go:5 | No matching port |
+```
+
+See [Rules & Rule IDs](./rules.md) for the full rule catalog.
 
 ---
 
@@ -123,6 +132,24 @@ Top-level fields in the JSON output:
 | `metrics`           | Detailed metrics breakdown |
 | `package_metrics`   | Array of per-package A/I/D metrics |
 | `pattern_detection` | Pattern confidence distribution |
+
+Each violation object includes:
+
+| Field       | Description |
+|-------------|-------------|
+| `rule`      | Stable rule ID (e.g. `L001`, `PA001`, `D001`) |
+| `rule_name` | Human-readable rule name (e.g. `domain-depends-on-infrastructure`) |
+| `kind`      | Violation kind with structured details |
+| `severity`  | `error`, `warning`, or `info` |
+| `location`  | File path, line, and column |
+| `message`   | Human-readable description |
+| `suggestion`| Fix suggestion (when available) |
+
+Filter violations by rule ID with `jq`:
+
+```bash
+boundary analyze . --format json | jq '.violations[] | select(.rule == "L001")'
+```
 
 ---
 

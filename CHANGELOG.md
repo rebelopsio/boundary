@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.0](https://github.com/rebelopsio/boundary/compare/v0.22.1...v0.23.0) (2026-02-28)
+
+
+### Features
+
+* add structured rule IDs to violations with --ignore flag ([#95](https://github.com/rebelopsio/boundary/issues/95)) ([3dfe81e](https://github.com/rebelopsio/boundary/commit/3dfe81ed2fe9a37811f6077b5036dbe03c0e0418))
+
 ## [0.22.1](https://github.com/rebelopsio/boundary/compare/v0.22.0...v0.22.1) (2026-02-26)
 
 

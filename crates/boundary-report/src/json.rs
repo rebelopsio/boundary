@@ -1,15 +1,86 @@
 use serde::Serialize;
 
 use boundary_core::metrics::AnalysisResult;
-use boundary_core::types::Severity;
+use boundary_core::types::{Severity, Violation};
+
+/// A violation with rule ID and name added for JSON output.
+#[derive(Serialize)]
+struct ViolationOutput<'a> {
+    rule: String,
+    rule_name: String,
+    #[serde(flatten)]
+    violation: &'a Violation,
+}
+
+impl<'a> ViolationOutput<'a> {
+    fn from(v: &'a Violation) -> Self {
+        Self {
+            rule: v.kind.rule_id().to_string(),
+            rule_name: v.kind.name().to_string(),
+            violation: v,
+        }
+    }
+}
+
+/// Wrapper for the full analysis result that enriches violations with rule metadata.
+#[derive(Serialize)]
+struct AnalysisOutput<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    score: &'a Option<boundary_core::metrics::ArchitectureScore>,
+    violations: Vec<ViolationOutput<'a>>,
+    component_count: usize,
+    dependency_count: usize,
+    files_analyzed: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    metrics: &'a Option<boundary_core::metrics_report::MetricsReport>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    package_metrics: &'a Vec<boundary_core::metrics::PackageMetric>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pattern_detection: &'a Option<boundary_core::pattern_detection::PatternDetection>,
+}
+
+impl<'a> AnalysisOutput<'a> {
+    fn from(result: &'a AnalysisResult) -> Self {
+        Self {
+            score: &result.score,
+            violations: result
+                .violations
+                .iter()
+                .map(ViolationOutput::from)
+                .collect(),
+            component_count: result.component_count,
+            dependency_count: result.dependency_count,
+            files_analyzed: result.files_analyzed,
+            metrics: &result.metrics,
+            package_metrics: &result.package_metrics,
+            pattern_detection: &result.pattern_detection,
+        }
+    }
+}
 
 /// Format a full analysis report as JSON.
 pub fn format_report(result: &AnalysisResult, compact: bool) -> String {
+    let output = AnalysisOutput::from(result);
     if compact {
-        serde_json::to_string(result).expect("AnalysisResult should be serializable")
+        serde_json::to_string(&output).expect("AnalysisOutput should be serializable")
     } else {
-        serde_json::to_string_pretty(result).expect("AnalysisResult should be serializable")
+        serde_json::to_string_pretty(&output).expect("AnalysisOutput should be serializable")
     }
+}
+
+/// Wrapper for multi-service output that enriches violations with rule metadata.
+#[derive(Serialize)]
+struct MultiServiceOutput<'a> {
+    services: Vec<ServiceOutput<'a>>,
+    aggregate: AnalysisOutput<'a>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    shared_modules: &'a Vec<boundary_core::metrics::SharedModule>,
+}
+
+#[derive(Serialize)]
+struct ServiceOutput<'a> {
+    service_name: &'a str,
+    result: AnalysisOutput<'a>,
 }
 
 /// Format a multi-service analysis report as JSON.
@@ -17,26 +88,38 @@ pub fn format_multi_service_report(
     multi: &boundary_core::metrics::MultiServiceResult,
     compact: bool,
 ) -> String {
+    let output = MultiServiceOutput {
+        services: multi
+            .services
+            .iter()
+            .map(|s| ServiceOutput {
+                service_name: &s.service_name,
+                result: AnalysisOutput::from(&s.result),
+            })
+            .collect(),
+        aggregate: AnalysisOutput::from(&multi.aggregate),
+        shared_modules: &multi.shared_modules,
+    };
     if compact {
-        serde_json::to_string(multi).expect("MultiServiceResult should be serializable")
+        serde_json::to_string(&output).expect("MultiServiceOutput should be serializable")
     } else {
-        serde_json::to_string_pretty(multi).expect("MultiServiceResult should be serializable")
+        serde_json::to_string_pretty(&output).expect("MultiServiceOutput should be serializable")
     }
 }
 
 /// Wrapper for check output that adds pass/fail metadata.
-#[derive(Debug, Serialize)]
-pub struct CheckOutput<'a> {
+#[derive(Serialize)]
+struct CheckOutput<'a> {
     #[serde(flatten)]
-    pub result: &'a AnalysisResult,
-    pub check: CheckStatus,
+    result: AnalysisOutput<'a>,
+    check: CheckStatus,
 }
 
-#[derive(Debug, Serialize)]
-pub struct CheckStatus {
-    pub passed: bool,
-    pub fail_on: Severity,
-    pub failing_violation_count: usize,
+#[derive(Serialize)]
+struct CheckStatus {
+    passed: bool,
+    fail_on: Severity,
+    failing_violation_count: usize,
 }
 
 /// Format a check result as JSON. Returns (json_string, passed).
@@ -50,7 +133,7 @@ pub fn format_check(result: &AnalysisResult, fail_on: Severity, compact: bool) -
     let passed = failing_count == 0;
 
     let output = CheckOutput {
-        result,
+        result: AnalysisOutput::from(result),
         check: CheckStatus {
             passed,
             fail_on,

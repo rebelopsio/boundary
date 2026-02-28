@@ -63,6 +63,9 @@ enum Commands {
         /// Output only the architecture score (one line)
         #[arg(long)]
         score_only: bool,
+        /// Ignore specific rule IDs (comma-separated, e.g. PA001,L005)
+        #[arg(long, value_delimiter = ',')]
+        ignore: Option<Vec<String>>,
     },
     /// Analyze and exit with code 0 (pass) or 1 (fail)
     Check {
@@ -95,6 +98,9 @@ enum Commands {
         /// Analyze each service independently (monorepo support)
         #[arg(long)]
         per_service: bool,
+        /// Ignore specific rule IDs (comma-separated, e.g. PA001,L005)
+        #[arg(long, value_delimiter = ',')]
+        ignore: Option<Vec<String>>,
     },
     /// Create a default .boundary.toml configuration file
     Init {
@@ -156,6 +162,7 @@ fn main() {
             incremental,
             per_service,
             score_only,
+            ignore,
         } => cmd_analyze(
             &path,
             config.as_deref(),
@@ -165,6 +172,7 @@ fn main() {
             incremental,
             per_service,
             score_only,
+            ignore.as_deref(),
         ),
         Commands::Check {
             path,
@@ -177,6 +185,7 @@ fn main() {
             no_regression,
             incremental,
             per_service,
+            ignore,
         } => cmd_check(
             &path,
             &fail_on,
@@ -188,6 +197,7 @@ fn main() {
             no_regression,
             incremental,
             per_service,
+            ignore.as_deref(),
         ),
         Commands::Init { force } => cmd_init(force),
         Commands::Diagram {
@@ -237,6 +247,7 @@ fn cmd_analyze(
     incremental: bool,
     per_service: bool,
     score_only: bool,
+    ignore: Option<&[String]>,
 ) -> Result<()> {
     validate_path(path)?;
     let project_root = resolve_project_root(path, config_path);
@@ -265,7 +276,8 @@ fn cmd_analyze(
         return Ok(());
     }
 
-    let analysis = run_analysis(path, &project_root, &config, languages, incremental)?;
+    let mut analysis = run_analysis(path, &project_root, &config, languages, incremental)?;
+    filter_ignored_violations(&mut analysis.result, ignore);
 
     if score_only {
         let module_name = path
@@ -321,6 +333,7 @@ fn cmd_check(
     no_regression: bool,
     incremental: bool,
     per_service: bool,
+    ignore: Option<&[String]>,
 ) -> Result<()> {
     validate_path(path)?;
     let project_root = resolve_project_root(path, config_path);
@@ -352,7 +365,8 @@ fn cmd_check(
         return Ok(());
     }
 
-    let analysis = run_analysis(path, &project_root, &config, languages, incremental)?;
+    let mut analysis = run_analysis(path, &project_root, &config, languages, incremental)?;
+    filter_ignored_violations(&mut analysis.result, ignore);
 
     // Evolution tracking
     if track {
@@ -466,6 +480,15 @@ fn cmd_forensics(
     }
 
     Ok(())
+}
+
+/// Remove violations whose rule ID matches any of the ignored rules.
+fn filter_ignored_violations(result: &mut metrics::AnalysisResult, ignore: Option<&[String]>) {
+    if let Some(rules) = ignore {
+        result
+            .violations
+            .retain(|v| !rules.iter().any(|r| r == v.kind.rule_id().as_str()));
+    }
 }
 
 fn load_config(project_path: &Path, config_path: Option<&Path>) -> Result<Config> {

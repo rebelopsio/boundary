@@ -195,6 +195,45 @@ pub struct Dependency {
     pub import_path: Option<String>,
 }
 
+/// Structured identifier for a violation rule.
+///
+/// Format: `{prefix}{number}` (e.g., L001, PA001, D001) or `C-{name}` for custom rules.
+/// See `docs/specs/rule-ids.md` for the full taxonomy.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct RuleId(String);
+
+impl RuleId {
+    fn new(prefix: &str, number: u16) -> Self {
+        Self(format!("{}{:03}", prefix, number))
+    }
+
+    pub fn layer(n: u16) -> Self {
+        Self::new("L", n)
+    }
+
+    pub fn dependency(n: u16) -> Self {
+        Self::new("D", n)
+    }
+
+    pub fn port_adapter(n: u16) -> Self {
+        Self::new("PA", n)
+    }
+
+    pub fn custom(name: &str) -> Self {
+        Self(format!("C-{}", name))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for RuleId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// Severity of a violation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -252,6 +291,50 @@ pub enum ViolationKind {
         from_layer: ArchLayer,
         to_layer: ArchLayer,
     },
+}
+
+impl ViolationKind {
+    /// Returns the structured rule ID for this violation kind.
+    pub fn rule_id(&self) -> RuleId {
+        match self {
+            ViolationKind::LayerBoundary {
+                from_layer,
+                to_layer,
+            } => match (from_layer, to_layer) {
+                (ArchLayer::Domain, ArchLayer::Infrastructure) => RuleId::layer(1),
+                (ArchLayer::Domain, ArchLayer::Application) => RuleId::layer(2),
+                (ArchLayer::Application, ArchLayer::Infrastructure) => RuleId::layer(3),
+                _ => RuleId::layer(99),
+            },
+            ViolationKind::InitFunctionCoupling { .. } => RuleId::layer(4),
+            ViolationKind::DomainInfrastructureLeak { .. } => RuleId::layer(5),
+            ViolationKind::CircularDependency { .. } => RuleId::dependency(1),
+            ViolationKind::MissingPort { .. } => RuleId::port_adapter(1),
+            ViolationKind::CustomRule { rule_name } => RuleId::custom(rule_name),
+        }
+    }
+
+    /// Returns a human-readable kebab-case name for this violation kind.
+    pub fn name(&self) -> &str {
+        match self {
+            ViolationKind::LayerBoundary {
+                from_layer,
+                to_layer,
+            } => match (from_layer, to_layer) {
+                (ArchLayer::Domain, ArchLayer::Infrastructure) => {
+                    "domain-depends-on-infrastructure"
+                }
+                (ArchLayer::Domain, ArchLayer::Application) => "domain-depends-on-application",
+                (ArchLayer::Application, ArchLayer::Infrastructure) => "application-bypasses-ports",
+                _ => "layer-boundary-violation",
+            },
+            ViolationKind::InitFunctionCoupling { .. } => "init-function-coupling",
+            ViolationKind::DomainInfrastructureLeak { .. } => "domain-uses-infrastructure-type",
+            ViolationKind::CircularDependency { .. } => "circular-dependency",
+            ViolationKind::MissingPort { .. } => "missing-port-interface",
+            ViolationKind::CustomRule { rule_name } => rule_name,
+        }
+    }
 }
 
 /// An architectural violation
@@ -319,5 +402,174 @@ mod tests {
         let id = ComponentId::new("pkg", "Name");
         assert_eq!(id.0, "pkg::Name");
         assert_eq!(id.to_string(), "pkg::Name");
+    }
+
+    #[test]
+    fn test_rule_id_display() {
+        assert_eq!(RuleId::layer(1).to_string(), "L001");
+        assert_eq!(RuleId::layer(99).to_string(), "L099");
+        assert_eq!(RuleId::dependency(1).to_string(), "D001");
+        assert_eq!(RuleId::port_adapter(1).to_string(), "PA001");
+        assert_eq!(RuleId::custom("no-logging").to_string(), "C-no-logging");
+    }
+
+    #[test]
+    fn test_violation_kind_rule_id() {
+        use ArchLayer::*;
+
+        assert_eq!(
+            ViolationKind::LayerBoundary {
+                from_layer: Domain,
+                to_layer: Infrastructure
+            }
+            .rule_id(),
+            RuleId::layer(1)
+        );
+        assert_eq!(
+            ViolationKind::LayerBoundary {
+                from_layer: Domain,
+                to_layer: Application
+            }
+            .rule_id(),
+            RuleId::layer(2)
+        );
+        assert_eq!(
+            ViolationKind::LayerBoundary {
+                from_layer: Application,
+                to_layer: Infrastructure
+            }
+            .rule_id(),
+            RuleId::layer(3)
+        );
+        assert_eq!(
+            ViolationKind::InitFunctionCoupling {
+                init_file: "main.go".into(),
+                called_package: "db".into(),
+                from_layer: Application,
+                to_layer: Infrastructure,
+            }
+            .rule_id(),
+            RuleId::layer(4)
+        );
+        assert_eq!(
+            ViolationKind::DomainInfrastructureLeak {
+                detail: "uses sql.DB".into()
+            }
+            .rule_id(),
+            RuleId::layer(5)
+        );
+        assert_eq!(
+            ViolationKind::CircularDependency { cycle: vec![] }.rule_id(),
+            RuleId::dependency(1)
+        );
+        assert_eq!(
+            ViolationKind::MissingPort {
+                adapter_name: "PostgresRepo".into()
+            }
+            .rule_id(),
+            RuleId::port_adapter(1)
+        );
+        assert_eq!(
+            ViolationKind::CustomRule {
+                rule_name: "no-logging".into()
+            }
+            .rule_id(),
+            RuleId::custom("no-logging")
+        );
+    }
+
+    #[test]
+    fn test_violation_kind_name() {
+        use ArchLayer::*;
+
+        assert_eq!(
+            ViolationKind::LayerBoundary {
+                from_layer: Domain,
+                to_layer: Infrastructure
+            }
+            .name(),
+            "domain-depends-on-infrastructure"
+        );
+        assert_eq!(
+            ViolationKind::LayerBoundary {
+                from_layer: Domain,
+                to_layer: Application
+            }
+            .name(),
+            "domain-depends-on-application"
+        );
+        assert_eq!(
+            ViolationKind::LayerBoundary {
+                from_layer: Application,
+                to_layer: Infrastructure
+            }
+            .name(),
+            "application-bypasses-ports"
+        );
+        assert_eq!(
+            ViolationKind::CircularDependency { cycle: vec![] }.name(),
+            "circular-dependency"
+        );
+        assert_eq!(
+            ViolationKind::MissingPort {
+                adapter_name: "X".into()
+            }
+            .name(),
+            "missing-port-interface"
+        );
+    }
+
+    #[test]
+    fn test_layer_boundary_rule_id_variants() {
+        use ArchLayer::*;
+
+        // Specific layer combos
+        assert_eq!(
+            ViolationKind::LayerBoundary {
+                from_layer: Domain,
+                to_layer: Infrastructure
+            }
+            .rule_id()
+            .to_string(),
+            "L001"
+        );
+        assert_eq!(
+            ViolationKind::LayerBoundary {
+                from_layer: Domain,
+                to_layer: Application
+            }
+            .rule_id()
+            .to_string(),
+            "L002"
+        );
+        assert_eq!(
+            ViolationKind::LayerBoundary {
+                from_layer: Application,
+                to_layer: Infrastructure
+            }
+            .rule_id()
+            .to_string(),
+            "L003"
+        );
+
+        // Catch-all for other combos
+        assert_eq!(
+            ViolationKind::LayerBoundary {
+                from_layer: Domain,
+                to_layer: Presentation
+            }
+            .rule_id()
+            .to_string(),
+            "L099"
+        );
+        assert_eq!(
+            ViolationKind::LayerBoundary {
+                from_layer: Application,
+                to_layer: Presentation
+            }
+            .rule_id()
+            .to_string(),
+            "L099"
+        );
     }
 }

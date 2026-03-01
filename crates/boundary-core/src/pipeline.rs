@@ -67,6 +67,7 @@ pub fn reclassify_infra_handlers(comp: &mut Component) {
             implements: Vec::new(),
             // Medium: reclassified by name suffix alone, no constructor proof.
             confidence: AdapterConfidence::Medium,
+            returns_concrete: None,
         });
     }
 }

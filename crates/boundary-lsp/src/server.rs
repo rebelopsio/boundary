@@ -114,6 +114,12 @@ impl BoundaryLanguageServer {
                 } => {
                     format!("init-coupling: {from_layer} -> {to_layer}")
                 }
+                ViolationKind::ConstructorReturnsConcrete {
+                    adapter_name,
+                    concrete_type,
+                } => {
+                    format!("constructor-concrete: {adapter_name} -> *{concrete_type}")
+                }
             };
 
             let diagnostic = Diagnostic {

@@ -273,6 +273,12 @@ pub fn format_forensics_report(analysis: &ForensicsAnalysis) -> String {
                 } => {
                     format!("init coupling: {from_layer} -> {to_layer}")
                 }
+                ViolationKind::ConstructorReturnsConcrete {
+                    adapter_name,
+                    concrete_type,
+                } => {
+                    format!("concrete constructor: {adapter_name} -> *{concrete_type}")
+                }
             };
             out.push_str(&format!(
                 "- **{}** [{}] {}: {}\n",

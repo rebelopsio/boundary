@@ -144,6 +144,8 @@ pub struct AdapterInfo {
     pub implements: Vec<String>,
     #[serde(default)]
     pub confidence: AdapterConfidence,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub returns_concrete: Option<String>,
 }
 
 /// Information about a domain entity
@@ -291,6 +293,10 @@ pub enum ViolationKind {
         from_layer: ArchLayer,
         to_layer: ArchLayer,
     },
+    ConstructorReturnsConcrete {
+        adapter_name: String,
+        concrete_type: String,
+    },
 }
 
 impl ViolationKind {
@@ -310,6 +316,7 @@ impl ViolationKind {
             ViolationKind::DomainInfrastructureLeak { .. } => RuleId::layer(5),
             ViolationKind::CircularDependency { .. } => RuleId::dependency(1),
             ViolationKind::MissingPort { .. } => RuleId::port_adapter(1),
+            ViolationKind::ConstructorReturnsConcrete { .. } => RuleId::port_adapter(3),
             ViolationKind::CustomRule { rule_name } => RuleId::custom(rule_name),
         }
     }
@@ -332,6 +339,7 @@ impl ViolationKind {
             ViolationKind::DomainInfrastructureLeak { .. } => "domain-uses-infrastructure-type",
             ViolationKind::CircularDependency { .. } => "circular-dependency",
             ViolationKind::MissingPort { .. } => "missing-port-interface",
+            ViolationKind::ConstructorReturnsConcrete { .. } => "constructor-returns-concrete-type",
             ViolationKind::CustomRule { rule_name } => rule_name,
         }
     }
@@ -476,6 +484,14 @@ mod tests {
             .rule_id(),
             RuleId::custom("no-logging")
         );
+        assert_eq!(
+            ViolationKind::ConstructorReturnsConcrete {
+                adapter_name: "MailGunService".into(),
+                concrete_type: "MailGunService".into(),
+            }
+            .rule_id(),
+            RuleId::port_adapter(3)
+        );
     }
 
     #[test]
@@ -516,6 +532,14 @@ mod tests {
             }
             .name(),
             "missing-port-interface"
+        );
+        assert_eq!(
+            ViolationKind::ConstructorReturnsConcrete {
+                adapter_name: "X".into(),
+                concrete_type: "Y".into(),
+            }
+            .name(),
+            "constructor-returns-concrete-type"
         );
     }
 

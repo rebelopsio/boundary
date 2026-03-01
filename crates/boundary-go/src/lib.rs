@@ -131,6 +131,25 @@ impl GoAnalyzer {
                   type: (qualified_type
                     package: (package_identifier) @return_pkg
                     name: (type_identifier) @return_type))))
+
+            ; Concrete pointer return (single): func New() *ConcreteType
+            (function_declaration
+              name: (identifier) @ctor_name
+              result: (pointer_type
+                (type_identifier) @return_type))
+
+            ; Concrete pointer return (multi): func New() (*ConcreteType, error)
+            (function_declaration
+              name: (identifier) @ctor_name
+              result: (parameter_list
+                (parameter_declaration
+                  type: (pointer_type
+                    (type_identifier) @return_type))))
+
+            ; Concrete value return: func New() ConcreteType
+            (function_declaration
+              name: (identifier) @ctor_name
+              result: (type_identifier) @return_type)
             "#,
         )
         .context("failed to compile constructor query")?;
@@ -563,9 +582,7 @@ fn extract_constructors(
     let return_pkg_idx = capture_names.iter().position(|n| *n == "return_pkg");
     let return_type_idx = capture_names.iter().position(|n| *n == "return_type");
 
-    let (Some(ctor_name_idx), Some(return_pkg_idx), Some(return_type_idx)) =
-        (ctor_name_idx, return_pkg_idx, return_type_idx)
-    else {
+    let (Some(ctor_name_idx), Some(return_type_idx)) = (ctor_name_idx, return_type_idx) else {
         return result;
     };
 
@@ -581,7 +598,7 @@ fn extract_constructors(
             let idx = capture.index as usize;
             if idx == ctor_name_idx {
                 ctor_name = node_text(capture.node, &parsed.content);
-            } else if idx == return_pkg_idx {
+            } else if return_pkg_idx == Some(idx) {
                 return_pkg = node_text(capture.node, &parsed.content);
             } else if idx == return_type_idx {
                 return_type = node_text(capture.node, &parsed.content);
@@ -592,7 +609,7 @@ fn extract_constructors(
         if !ctor_name.starts_with("New") || ctor_name.len() <= 3 {
             continue;
         }
-        if return_pkg.is_empty() || return_type.is_empty() {
+        if return_type.is_empty() {
             continue;
         }
 
@@ -696,20 +713,34 @@ fn classify_struct_kind(
             return ComponentKind::Repository;
         }
 
-        // Constructor-based classification (High confidence).
+        // Constructor-based classification.
         // Covers both unexported structs (looked up by lowercase name) and exported
         // structs (looked up by PascalCase name — dual-indexed in extract_constructors).
         if let Some(ctor) = constructors.get(name) {
-            let port_name = ctor.return_type.clone();
-            return if port_name.to_lowercase().ends_with("repository")
-                || port_name.to_lowercase().ends_with("repo")
+            let is_concrete = ctor.return_package.is_empty();
+            let type_name = ctor.return_type.clone();
+
+            if type_name.to_lowercase().ends_with("repository")
+                || type_name.to_lowercase().ends_with("repo")
             {
-                ComponentKind::Repository
-            } else {
+                return ComponentKind::Repository;
+            }
+
+            return if is_concrete {
+                // Concrete return — Medium confidence, PA003 will flag this.
                 ComponentKind::Adapter(AdapterInfo {
                     name: name.to_string(),
-                    implements: vec![port_name],
+                    implements: Vec::new(),
+                    confidence: AdapterConfidence::Medium,
+                    returns_concrete: Some(type_name),
+                })
+            } else {
+                // Qualified return (port interface) — High confidence.
+                ComponentKind::Adapter(AdapterInfo {
+                    name: name.to_string(),
+                    implements: vec![type_name],
                     confidence: AdapterConfidence::High,
+                    returns_concrete: None,
                 })
             };
         }

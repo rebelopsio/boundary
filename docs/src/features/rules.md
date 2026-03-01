@@ -28,6 +28,32 @@ Every violation Boundary reports carries a **rule ID** — a short, stable ident
 | ID | Name | Description | Severity |
 |----|------|-------------|----------|
 | PA001 | missing-port-interface | Infrastructure adapter has no matching domain port | Warning |
+| PA003 | constructor-returns-concrete-type | Constructor returns concrete type instead of port interface | Warning |
+
+#### PA003: constructor-returns-concrete-type
+
+Detects constructors in the infrastructure layer that return a concrete struct pointer instead
+of a port interface. This is a Dependency Inversion Principle violation — callers become coupled
+to the concrete implementation rather than depending on an abstraction.
+
+**Violation:**
+```go
+// infrastructure/mailgun/service.go
+func NewMailGunService(apiKey string) *MailGunService {
+    return &MailGunService{apiKey: apiKey}
+}
+```
+
+**Fix:** Return the port interface instead:
+```go
+// infrastructure/mailgun/service.go
+func NewMailGunService(apiKey string) ports.NotificationService {
+    return &MailGunService{apiKey: apiKey}
+}
+```
+
+When PA003 fires, PA001 (missing-port-interface) is suppressed for the same adapter since PA003
+provides more specific guidance.
 
 ### Custom Rules (`C-`)
 

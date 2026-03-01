@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.0](https://github.com/rebelopsio/boundary/compare/v0.24.0...v0.25.0) (2026-03-01)
+
+
+### Features
+
+* detect constructors returning concrete types (PA003) ([#99](https://github.com/rebelopsio/boundary/issues/99)) ([8d77085](https://github.com/rebelopsio/boundary/commit/8d770856c8b46a4bbc2383fffd9a6d24967d96ad))
+
 ## [0.24.0](https://github.com/rebelopsio/boundary/compare/v0.23.0...v0.24.0) (2026-03-01)
 
 

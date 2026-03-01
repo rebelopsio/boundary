@@ -10,6 +10,7 @@ pub mod metrics;
 pub mod metrics_report;
 pub mod pattern_detection;
 pub mod pipeline;
+pub mod rule_filter;
 pub mod types;
 
 pub use analyzer::{LanguageAnalyzer, ParsedFile};

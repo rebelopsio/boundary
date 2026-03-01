@@ -1,0 +1,6 @@
+[rules.severities]
+PA001 = "info"
+
+[[rules.ignore]]
+rule = "L005"
+paths = ["**/internal/domain/user/bad_dep.go"]

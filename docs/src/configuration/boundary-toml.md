@@ -110,14 +110,49 @@ Weights should sum to 1.0.
 
 ### `[rules.severities]`
 
-Override the default severity for built-in violation types:
+Override the default severity for built-in violation types. Both **category names** and
+**rule IDs** are accepted as keys. Rule IDs take precedence over category names.
 
-| Violation Type | Default Severity | Description |
+#### Category Names
+
+| Category Name | Default Severity | Description |
 |---------------|-----------------|-------------|
 | `layer_boundary` | `error` | Inner layer depends on outer layer |
 | `circular_dependency` | `error` | Circular dependency between components |
 | `missing_port` | `warning` | Adapter without a corresponding port interface |
 | `init_coupling` | `warning` | Go `init()` function creates hidden coupling |
+| `domain_infra_leak` | `error` | Domain references infrastructure types |
+
+#### Rule IDs
+
+You can also use specific rule IDs (e.g., `L001`, `PA001`) for more granular control:
+
+```toml
+[rules.severities]
+missing_port = "warning"   # Category-wide default
+PA001 = "info"             # Override just missing-port-interface to info
+```
+
+See [Rules & Rule IDs](../features/rules.md) for the full rule catalog.
+
+### `[[rules.ignore]]`
+
+Suppress specific rules for files matching glob patterns:
+
+```toml
+[[rules.ignore]]
+rule = "PA001"
+paths = ["infrastructure/**/*document.go"]
+
+[[rules.ignore]]
+rule = "L005"
+paths = ["legacy/**"]
+```
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `rule` | string | Rule ID to suppress (e.g., `PA001`, `L001`) |
+| `paths` | list | Glob patterns — violation is suppressed if the file matches any pattern |
 
 ### Custom Rules
 

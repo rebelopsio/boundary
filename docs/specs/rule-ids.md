@@ -99,9 +99,61 @@ Each violation object includes `rule` and `rule_name` fields alongside existing 
 | L001 | ERROR | domain-depends-on-infrastructure | domain/user.go:10 | ... |
 ```
 
-## Phase 2 (Future)
+## Phase 2 — Config-based Rule Configuration
 
-- `.boundary.toml` rule configuration: severity overrides, path-specific ignores
+### Severity Overrides in `[rules.severities]`
+
+Both **category names** (legacy) and **rule IDs** are accepted as keys:
+
+```toml
+[rules.severities]
+# Category names (backward compatible)
+layer_boundary = "error"
+missing_port = "warning"
+domain_infra_leak = "error"      # NEW — was hardcoded to Error before Phase 2
+init_coupling = "warning"
+
+# Rule IDs (more precise, takes precedence over category names)
+L001 = "error"
+PA001 = "info"
+```
+
+**Precedence:** rule ID (e.g. `PA001`) > category name (e.g. `missing_port`) > built-in default.
+
+#### Category Name Mapping
+
+| Category Name | Violation Kinds |
+|---------------|----------------|
+| `layer_boundary` | `LayerBoundary` (all `from_layer`/`to_layer` combos) |
+| `circular_dependency` | `CircularDependency` |
+| `missing_port` | `MissingPort` |
+| `init_coupling` | `InitFunctionCoupling` |
+| `domain_infra_leak` | `DomainInfrastructureLeak` |
+
+### Path-specific Ignores `[[rules.ignore]]`
+
+Suppress specific rules for files matching glob patterns:
+
+```toml
+[[rules.ignore]]
+rule = "PA001"
+paths = ["infrastructure/**/*document.go"]
+
+[[rules.ignore]]
+rule = "L005"
+paths = ["legacy/**"]
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `rule` | string | Rule ID to suppress (e.g. `PA001`, `L001`, `C-my-rule`) |
+| `paths` | list of strings | Glob patterns; violation is suppressed if the file matches any |
+
+Path-specific ignores are applied uniformly — they filter violations in CLI output, library
+API, and (future) LSP integration.
+
+## Phase 3 (Future)
+
 - Documentation URLs on violations
 - New detection rules: PA002 (port-without-implementation), PA003 (constructor-returns-concrete)
 - Historical tracking / violation trend comparison

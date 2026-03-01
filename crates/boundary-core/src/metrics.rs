@@ -239,6 +239,17 @@ pub fn detect_violations(graph: &DependencyGraph, config: &Config) -> Vec<Violat
         }
     }
 
+    // Apply config-based path-specific ignores
+    if !config.rules.ignore.is_empty() {
+        let filter = crate::rule_filter::RuleIgnoreFilter::new(&config.rules.ignore);
+        violations.retain(|v| {
+            !filter.is_ignored(
+                v.kind.rule_id().as_str(),
+                &v.location.file.to_string_lossy(),
+            )
+        });
+    }
+
     violations
 }
 
@@ -247,13 +258,6 @@ fn detect_layer_violations(
     config: &Config,
     violations: &mut Vec<Violation>,
 ) {
-    let severity = config
-        .rules
-        .severities
-        .get("layer_boundary")
-        .copied()
-        .unwrap_or(Severity::Error);
-
     for (src, tgt, edge) in graph.edges_with_nodes() {
         if src.is_external || tgt.is_external {
             continue;
@@ -291,11 +295,14 @@ fn detect_layer_violations(
                 .map(|p| format!(" (import: {p})"))
                 .unwrap_or_default();
 
+            let kind = ViolationKind::LayerBoundary {
+                from_layer,
+                to_layer,
+            };
+            let severity = config.rules.resolve_severity(&kind, Severity::Error);
+
             violations.push(Violation {
-                kind: ViolationKind::LayerBoundary {
-                    from_layer,
-                    to_layer,
-                },
+                kind,
                 severity,
                 location: edge.location.clone(),
                 message: format!(
@@ -317,13 +324,6 @@ fn detect_circular_dependencies(
     config: &Config,
     violations: &mut Vec<Violation>,
 ) {
-    let severity = config
-        .rules
-        .severities
-        .get("circular_dependency")
-        .copied()
-        .unwrap_or(Severity::Error);
-
     let all_nodes = graph.nodes();
     for cycle in graph.find_cycles() {
         let cycle_str = cycle
@@ -337,10 +337,12 @@ fn detect_circular_dependencies(
             .and_then(|id| all_nodes.iter().find(|n| &n.id == id))
             .map(|n| n.location.clone())
             .unwrap_or_default();
+        let kind = ViolationKind::CircularDependency {
+            cycle: cycle.clone(),
+        };
+        let severity = config.rules.resolve_severity(&kind, Severity::Error);
         violations.push(Violation {
-            kind: ViolationKind::CircularDependency {
-                cycle: cycle.clone(),
-            },
+            kind,
             severity,
             location,
             message: format!("Circular dependency detected: {cycle_str}"),
@@ -372,13 +374,6 @@ fn detect_pattern_violations(
     config: &Config,
     violations: &mut Vec<Violation>,
 ) {
-    let severity = config
-        .rules
-        .severities
-        .get("missing_port")
-        .copied()
-        .unwrap_or(Severity::Warning);
-
     let nodes = graph.nodes();
 
     // Collect port names using ComponentKind first, then fall back to name heuristics
@@ -479,10 +474,12 @@ fn detect_pattern_violations(
         });
 
         if !has_port {
+            let kind = ViolationKind::MissingPort {
+                adapter_name: node.name.clone(),
+            };
+            let severity = config.rules.resolve_severity(&kind, Severity::Warning);
             violations.push(Violation {
-                kind: ViolationKind::MissingPort {
-                    adapter_name: node.name.clone(),
-                },
+                kind,
                 severity,
                 location: node.location.clone(),
                 message: format!(
@@ -516,11 +513,13 @@ fn detect_pattern_violations(
         if let Some(ref import_path) = edge.import_path {
             let path_lower = import_path.to_lowercase();
             if INFRA_KEYWORDS.iter().any(|kw| path_lower.contains(kw)) {
+                let kind = ViolationKind::DomainInfrastructureLeak {
+                    detail: format!("domain imports infrastructure path: {import_path}"),
+                };
+                let severity = config.rules.resolve_severity(&kind, Severity::Error);
                 violations.push(Violation {
-                    kind: ViolationKind::DomainInfrastructureLeak {
-                        detail: format!("domain imports infrastructure path: {import_path}"),
-                    },
-                    severity: Severity::Error,
+                    kind,
+                    severity,
                     location: edge.location.clone(),
                     message: format!(
                         "Domain layer directly imports infrastructure dependency '{import_path}'"
@@ -556,14 +555,16 @@ fn detect_pattern_violations(
                 || tgt_lower.contains("redis")
                 || tgt_lower.contains("mongo")
             {
+                let kind = ViolationKind::DomainInfrastructureLeak {
+                    detail: format!(
+                        "domain entity depends on concrete infrastructure: {}",
+                        tgt.name
+                    ),
+                };
+                let severity = config.rules.resolve_severity(&kind, Severity::Error);
                 violations.push(Violation {
-                    kind: ViolationKind::DomainInfrastructureLeak {
-                        detail: format!(
-                            "domain entity depends on concrete infrastructure: {}",
-                            tgt.name
-                        ),
-                    },
-                    severity: Severity::Error,
+                    kind,
+                    severity,
                     location: edge.location.clone(),
                     message: format!(
                         "Domain component '{}' directly depends on infrastructure component '{}'",
@@ -589,13 +590,6 @@ fn detect_init_violations(
         return;
     }
 
-    let severity = config
-        .rules
-        .severities
-        .get("init_coupling")
-        .copied()
-        .unwrap_or(Severity::Warning);
-
     for (src, tgt, edge) in graph.edges_with_nodes() {
         // Only check edges from init functions (component ID contains "<init>")
         if !src.id.0.contains("<init>") {
@@ -614,13 +608,16 @@ fn detect_init_violations(
             let init_file = edge.location.file.to_string_lossy().to_string();
             let called_package = tgt.id.0.clone();
 
+            let kind = ViolationKind::InitFunctionCoupling {
+                init_file: init_file.clone(),
+                called_package: called_package.clone(),
+                from_layer,
+                to_layer,
+            };
+            let severity = config.rules.resolve_severity(&kind, Severity::Warning);
+
             violations.push(Violation {
-                kind: ViolationKind::InitFunctionCoupling {
-                    init_file: init_file.clone(),
-                    called_package: called_package.clone(),
-                    from_layer,
-                    to_layer,
-                },
+                kind,
                 severity,
                 location: edge.location.clone(),
                 message: format!(

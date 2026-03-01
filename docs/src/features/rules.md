@@ -36,6 +36,47 @@ name. For example, a rule named `no-logging-in-domain` gets the ID `C-no-logging
 
 See [Custom Rules](./custom-rules.md) for how to define them.
 
+## Configuration
+
+### Severity Overrides
+
+Override the default severity for any rule using its **rule ID** or **category name** in
+`[rules.severities]`:
+
+```toml
+[rules.severities]
+# Category names (backward compatible)
+layer_boundary = "error"
+missing_port = "warning"
+domain_infra_leak = "error"
+
+# Rule IDs take precedence over category names
+PA001 = "info"
+L001 = "warning"
+```
+
+When both a rule ID and category name are configured, the rule ID wins. This lets you set a
+baseline per category and override individual rules.
+
+### Path-specific Ignores
+
+Suppress specific rules for files matching glob patterns:
+
+```toml
+[[rules.ignore]]
+rule = "PA001"
+paths = ["infrastructure/**/*document.go"]
+
+[[rules.ignore]]
+rule = "L005"
+paths = ["legacy/**"]
+```
+
+Unlike `--ignore` (which suppresses a rule globally), path-specific ignores only suppress
+violations in files matching the glob patterns. This is useful when certain areas of the
+codebase intentionally diverge from the architecture (e.g., legacy modules undergoing
+migration).
+
 ## Ignoring Rules
 
 Use `--ignore` to suppress specific rules by ID. This is useful for false positives or rules

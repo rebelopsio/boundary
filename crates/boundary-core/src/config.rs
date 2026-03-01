@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::types::{ArchitectureMode, Severity};
+use crate::types::{ArchitectureMode, Severity, ViolationKind};
 
 /// Top-level configuration from `.boundary.toml`
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -182,6 +182,13 @@ fn default_custom_rule_severity() -> Severity {
     Severity::Error
 }
 
+/// A path-specific rule ignore entry from `[[rules.ignore]]`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IgnoreRuleConfig {
+    pub rule: String,
+    pub paths: Vec<String>,
+}
+
 /// Rule configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RulesConfig {
@@ -195,6 +202,8 @@ pub struct RulesConfig {
     pub custom_rules: Vec<CustomRuleConfig>,
     #[serde(default = "default_true")]
     pub detect_init_functions: bool,
+    #[serde(default)]
+    pub ignore: Vec<IgnoreRuleConfig>,
 }
 
 fn default_true() -> bool {
@@ -207,6 +216,7 @@ fn default_severities() -> HashMap<String, Severity> {
     m.insert("circular_dependency".to_string(), Severity::Error);
     m.insert("missing_port".to_string(), Severity::Warning);
     m.insert("init_coupling".to_string(), Severity::Warning);
+    m.insert("domain_infra_leak".to_string(), Severity::Error);
     m
 }
 
@@ -222,7 +232,28 @@ impl Default for RulesConfig {
             min_score: None,
             custom_rules: Vec::new(),
             detect_init_functions: true,
+            ignore: Vec::new(),
         }
+    }
+}
+
+impl RulesConfig {
+    /// Resolve severity for a violation kind.
+    /// Precedence: rule ID (e.g. "L001") > category name (e.g. "layer_boundary") > default.
+    pub fn resolve_severity(&self, kind: &ViolationKind, default: Severity) -> Severity {
+        let rule_id = kind.rule_id().to_string();
+        if let Some(&sev) = self.severities.get(&rule_id) {
+            return sev;
+        }
+        let category = match kind {
+            ViolationKind::LayerBoundary { .. } => "layer_boundary",
+            ViolationKind::CircularDependency { .. } => "circular_dependency",
+            ViolationKind::MissingPort { .. } => "missing_port",
+            ViolationKind::InitFunctionCoupling { .. } => "init_coupling",
+            ViolationKind::DomainInfrastructureLeak { .. } => "domain_infra_leak",
+            ViolationKind::CustomRule { .. } => return default,
+        };
+        self.severities.get(category).copied().unwrap_or(default)
     }
 }
 
@@ -305,10 +336,21 @@ fail_on = "error"
 # min_score = 70.0
 
 [rules.severities]
+# Category names (backward compatible)
 layer_boundary = "error"
 circular_dependency = "error"
 missing_port = "warning"
 init_coupling = "warning"
+domain_infra_leak = "error"
+#
+# Rule IDs (more precise, takes precedence over category names)
+# L001 = "error"    # domain-depends-on-infrastructure
+# PA001 = "info"    # missing-port-interface
+
+# Path-specific ignores
+# [[rules.ignore]]
+# rule = "PA001"
+# paths = ["infrastructure/**/*document.go"]
 "#
         .to_string()
     }
@@ -481,5 +523,115 @@ domain = ["**/domain/**"]
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert!(config.layers.cross_cutting.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_severity_rule_id_takes_precedence() {
+        let mut rules = RulesConfig::default();
+        // Set category to warning, but rule ID to info
+        rules
+            .severities
+            .insert("missing_port".to_string(), Severity::Warning);
+        rules.severities.insert("PA001".to_string(), Severity::Info);
+
+        let kind = ViolationKind::MissingPort {
+            adapter_name: "TestAdapter".to_string(),
+        };
+        assert_eq!(
+            rules.resolve_severity(&kind, Severity::Error),
+            Severity::Info
+        );
+    }
+
+    #[test]
+    fn test_resolve_severity_category_fallback() {
+        let mut rules = RulesConfig::default();
+        rules
+            .severities
+            .insert("missing_port".to_string(), Severity::Info);
+        // No rule ID override
+
+        let kind = ViolationKind::MissingPort {
+            adapter_name: "TestAdapter".to_string(),
+        };
+        assert_eq!(
+            rules.resolve_severity(&kind, Severity::Error),
+            Severity::Info
+        );
+    }
+
+    #[test]
+    fn test_resolve_severity_default_when_nothing_configured() {
+        let rules = RulesConfig {
+            severities: HashMap::new(),
+            ..Default::default()
+        };
+
+        let kind = ViolationKind::MissingPort {
+            adapter_name: "TestAdapter".to_string(),
+        };
+        assert_eq!(
+            rules.resolve_severity(&kind, Severity::Warning),
+            Severity::Warning
+        );
+    }
+
+    #[test]
+    fn test_resolve_severity_domain_infra_leak_configurable() {
+        let mut rules = RulesConfig::default();
+        rules
+            .severities
+            .insert("domain_infra_leak".to_string(), Severity::Warning);
+
+        let kind = ViolationKind::DomainInfrastructureLeak {
+            detail: "test".to_string(),
+        };
+        assert_eq!(
+            rules.resolve_severity(&kind, Severity::Error),
+            Severity::Warning
+        );
+    }
+
+    #[test]
+    fn test_deserialize_ignore_rules() {
+        let toml_str = r#"
+[rules]
+fail_on = "error"
+
+[[rules.ignore]]
+rule = "PA001"
+paths = ["infrastructure/**/*document.go"]
+
+[[rules.ignore]]
+rule = "L005"
+paths = ["legacy/**"]
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.rules.ignore.len(), 2);
+        assert_eq!(config.rules.ignore[0].rule, "PA001");
+        assert_eq!(
+            config.rules.ignore[0].paths,
+            vec!["infrastructure/**/*document.go"]
+        );
+        assert_eq!(config.rules.ignore[1].rule, "L005");
+    }
+
+    #[test]
+    fn test_rule_id_severity_in_toml() {
+        let toml_str = r#"
+[rules.severities]
+layer_boundary = "error"
+PA001 = "info"
+L001 = "warning"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(
+            config.rules.severities.get("PA001").copied(),
+            Some(Severity::Info)
+        );
+        assert_eq!(
+            config.rules.severities.get("L001").copied(),
+            Some(Severity::Warning)
+        );
     }
 }

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.0](https://github.com/rebelopsio/boundary/compare/v0.23.0...v0.24.0) (2026-03-01)
+
+
+### Features
+
+* add config-based rule severity overrides and path-specific ignores (#Phase2) ([#97](https://github.com/rebelopsio/boundary/issues/97)) ([2eb3f01](https://github.com/rebelopsio/boundary/commit/2eb3f01c6a33dec4e1dd36cb7d9a422b39bf8184))
+
 ## [0.23.0](https://github.com/rebelopsio/boundary/compare/v0.22.1...v0.23.0) (2026-02-28)
 
 

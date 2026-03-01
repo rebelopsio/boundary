@@ -217,6 +217,7 @@ fn default_severities() -> HashMap<String, Severity> {
     m.insert("missing_port".to_string(), Severity::Warning);
     m.insert("init_coupling".to_string(), Severity::Warning);
     m.insert("domain_infra_leak".to_string(), Severity::Error);
+    m.insert("constructor_concrete".to_string(), Severity::Warning);
     m
 }
 
@@ -251,6 +252,7 @@ impl RulesConfig {
             ViolationKind::MissingPort { .. } => "missing_port",
             ViolationKind::InitFunctionCoupling { .. } => "init_coupling",
             ViolationKind::DomainInfrastructureLeak { .. } => "domain_infra_leak",
+            ViolationKind::ConstructorReturnsConcrete { .. } => "constructor_concrete",
             ViolationKind::CustomRule { .. } => return default,
         };
         self.severities.get(category).copied().unwrap_or(default)
@@ -346,6 +348,7 @@ domain_infra_leak = "error"
 # Rule IDs (more precise, takes precedence over category names)
 # L001 = "error"    # domain-depends-on-infrastructure
 # PA001 = "info"    # missing-port-interface
+# PA003 = "warning"  # constructor-returns-concrete-type
 
 # Path-specific ignores
 # [[rules.ignore]]
@@ -632,6 +635,38 @@ L001 = "warning"
         assert_eq!(
             config.rules.severities.get("L001").copied(),
             Some(Severity::Warning)
+        );
+    }
+
+    #[test]
+    fn test_resolve_severity_constructor_concrete() {
+        let mut rules = RulesConfig::default();
+        // Default should be warning
+        let kind = ViolationKind::ConstructorReturnsConcrete {
+            adapter_name: "TestAdapter".to_string(),
+            concrete_type: "ConcreteType".to_string(),
+        };
+        assert_eq!(
+            rules.resolve_severity(&kind, Severity::Warning),
+            Severity::Warning
+        );
+
+        // Category override
+        rules
+            .severities
+            .insert("constructor_concrete".to_string(), Severity::Info);
+        assert_eq!(
+            rules.resolve_severity(&kind, Severity::Warning),
+            Severity::Info
+        );
+
+        // Rule ID takes precedence
+        rules
+            .severities
+            .insert("PA003".to_string(), Severity::Error);
+        assert_eq!(
+            rules.resolve_severity(&kind, Severity::Warning),
+            Severity::Error
         );
     }
 }

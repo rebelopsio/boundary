@@ -36,6 +36,7 @@ These rules map to existing `ViolationKind` variants — no new detection logic.
 | L099 | layer-boundary-violation | `LayerBoundary { other combos }` | Error |
 | D001 | circular-dependency | `CircularDependency` | Error |
 | PA001 | missing-port-interface | `MissingPort` | Warning |
+| PA003 | constructor-returns-concrete-type | `ConstructorReturnsConcrete` | Warning |
 | C-{name} | {name} | `CustomRule { name }` | (user-defined) |
 
 ### Layer Boundary Specialization
@@ -127,6 +128,7 @@ PA001 = "info"
 | `layer_boundary` | `LayerBoundary` (all `from_layer`/`to_layer` combos) |
 | `circular_dependency` | `CircularDependency` |
 | `missing_port` | `MissingPort` |
+| `constructor_concrete` | `ConstructorReturnsConcrete` |
 | `init_coupling` | `InitFunctionCoupling` |
 | `domain_infra_leak` | `DomainInfrastructureLeak` |
 
@@ -155,5 +157,6 @@ API, and (future) LSP integration.
 ## Phase 3 (Future)
 
 - Documentation URLs on violations
-- New detection rules: PA002 (port-without-implementation), PA003 (constructor-returns-concrete)
+- New detection rules: PA002 (port-without-implementation)
+- PA003 (constructor-returns-concrete-type) — implemented in Phase 3
 - Historical tracking / violation trend comparison

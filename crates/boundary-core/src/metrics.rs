@@ -431,7 +431,11 @@ fn detect_pattern_violations(
         let implements_port = matches!(&node.kind,
             Some(ComponentKind::Adapter(info)) if !info.implements.is_empty()
         );
-        if implements_port {
+        // PA003 handles concrete-returning constructors — skip PA001 for those.
+        let has_concrete_constructor = matches!(&node.kind,
+            Some(ComponentKind::Adapter(info)) if info.returns_concrete.is_some()
+        );
+        if implements_port || has_concrete_constructor {
             continue;
         }
 
@@ -491,6 +495,33 @@ fn detect_pattern_violations(
                         .to_string(),
                 ),
             });
+        }
+    }
+
+    // Check PA003: Constructor returns concrete type instead of port interface
+    for node in &nodes {
+        if let Some(ComponentKind::Adapter(info)) = &node.kind {
+            if let Some(concrete_type) = &info.returns_concrete {
+                let kind = ViolationKind::ConstructorReturnsConcrete {
+                    adapter_name: info.name.clone(),
+                    concrete_type: concrete_type.clone(),
+                };
+                let severity = config.rules.resolve_severity(&kind, Severity::Warning);
+                violations.push(Violation {
+                    kind,
+                    severity,
+                    location: node.location.clone(),
+                    message: format!(
+                        "Constructor for '{}' returns concrete type '*{}' instead of port interface",
+                        info.name, concrete_type
+                    ),
+                    suggestion: Some(
+                        "Change constructor return type to a port interface to follow \
+                         the Dependency Inversion Principle."
+                            .to_string(),
+                    ),
+                });
+            }
         }
     }
 
@@ -899,6 +930,7 @@ fn compute_metrics(
             ViolationKind::CustomRule { .. } => "custom_rule",
             ViolationKind::DomainInfrastructureLeak { .. } => "domain_infrastructure_leak",
             ViolationKind::InitFunctionCoupling { .. } => "init_coupling",
+            ViolationKind::ConstructorReturnsConcrete { .. } => "constructor_concrete",
         };
         *violations_by_kind.entry(kind_name.to_string()).or_insert(0) += 1;
     }

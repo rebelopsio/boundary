@@ -376,6 +376,7 @@ fn classify_class_kind(name: &str, implements: &[String]) -> ComponentKind {
             name: name.to_string(),
             implements: implements.to_vec(),
             confidence: AdapterConfidence::default(),
+            returns_concrete: None,
         })
     } else if lower.ends_with("usecase") || lower.ends_with("interactor") {
         ComponentKind::UseCase
@@ -384,6 +385,7 @@ fn classify_class_kind(name: &str, implements: &[String]) -> ComponentKind {
             name: name.to_string(),
             implements: implements.to_vec(),
             confidence: AdapterConfidence::default(),
+            returns_concrete: None,
         })
     } else {
         ComponentKind::Entity(EntityInfo {

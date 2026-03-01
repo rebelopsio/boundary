@@ -341,6 +341,7 @@ fn enrich_with_impls(
                             name: type_name.clone(),
                             implements: vec![trait_name.clone()],
                             confidence: AdapterConfidence::default(),
+                            returns_concrete: None,
                         });
                     }
                 }
@@ -361,6 +362,7 @@ fn classify_struct_kind(name: &str, fields: &[FieldInfo]) -> ComponentKind {
             name: name.to_string(),
             implements: Vec::new(),
             confidence: AdapterConfidence::default(),
+            returns_concrete: None,
         })
     } else if lower.ends_with("usecase") || lower.ends_with("interactor") {
         ComponentKind::UseCase

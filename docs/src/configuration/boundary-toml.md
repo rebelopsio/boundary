@@ -120,6 +120,7 @@ Override the default severity for built-in violation types. Both **category name
 | `layer_boundary` | `error` | Inner layer depends on outer layer |
 | `circular_dependency` | `error` | Circular dependency between components |
 | `missing_port` | `warning` | Adapter without a corresponding port interface |
+| `constructor_concrete` | `warning` | Constructor returns concrete type instead of port |
 | `init_coupling` | `warning` | Go `init()` function creates hidden coupling |
 | `domain_infra_leak` | `error` | Domain references infrastructure types |
 

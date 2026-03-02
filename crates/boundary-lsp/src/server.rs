@@ -120,6 +120,9 @@ impl BoundaryLanguageServer {
                 } => {
                     format!("constructor-concrete: {adapter_name} -> *{concrete_type}")
                 }
+                ViolationKind::PortWithoutImplementation { port_name } => {
+                    format!("port-without-impl: {port_name}")
+                }
             };
 
             let diagnostic = Diagnostic {

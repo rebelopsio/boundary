@@ -382,10 +382,23 @@ fn cmd_check(
                 }
             };
             println!("{report}");
+            eprintln!("Architecture regression detected!");
             eprintln!(
-                "Score regression detected: {:.1} -> {:.1} (delta: {:.1})",
+                "  Score: {:.1} -> {:.1} ({:+.1})",
                 trend.previous_score, trend.current_score, trend.score_delta
             );
+            eprintln!(
+                "  Violations: {} -> {} ({:+})",
+                trend.previous_violations, trend.current_violations, trend.violation_delta
+            );
+            for rt in &trend.rule_trends {
+                if rt.delta != 0 {
+                    eprintln!(
+                        "    {}: {} -> {} ({:+})",
+                        rt.rule_id, rt.previous_count, rt.current_count, rt.delta
+                    );
+                }
+            }
             process::exit(1);
         }
     }

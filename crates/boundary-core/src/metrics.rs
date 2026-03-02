@@ -525,6 +525,106 @@ fn detect_pattern_violations(
         }
     }
 
+    // Check PA002: Port without implementation — domain port with no adapter implementing it
+    {
+        // Collect all port names that have at least one implementing adapter
+        let mut implemented_ports: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        for node in &nodes {
+            if let Some(ComponentKind::Adapter(info)) = &node.kind {
+                for port_name in &info.implements {
+                    implemented_ports.insert(port_name.clone());
+                }
+            }
+        }
+
+        // Also check name-heuristic matching (inverse of PA001 logic).
+        // Include both Adapter and Repository components in infrastructure layer —
+        // a Repository is effectively an adapter implementing a port.
+        let adapter_names: Vec<String> = nodes
+            .iter()
+            .filter(|n| {
+                n.layer == Some(ArchLayer::Infrastructure)
+                    && matches!(
+                        &n.kind,
+                        Some(ComponentKind::Adapter(_)) | Some(ComponentKind::Repository)
+                    )
+            })
+            .map(|n| n.name.to_lowercase())
+            .collect();
+
+        for node in &nodes {
+            if node.is_cross_cutting {
+                continue;
+            }
+            let is_port = matches!(&node.kind, Some(ComponentKind::Port(_)))
+                && node.layer == Some(ArchLayer::Domain);
+            if !is_port {
+                continue;
+            }
+
+            // Check explicit implements relationships
+            if implemented_ports.contains(&node.name) {
+                continue;
+            }
+
+            // Fallback: name-heuristic matching
+            let port_lower = node.name.to_lowercase();
+            let port_base = port_lower
+                .trim_end_matches("port")
+                .trim_end_matches("interface")
+                .trim_end_matches("repository")
+                .trim_end_matches("service");
+
+            let has_adapter = adapter_names.iter().any(|adapter_lower| {
+                let adapter_base = adapter_lower
+                    .trim_end_matches("handler")
+                    .trim_end_matches("controller")
+                    .trim_end_matches("adapter")
+                    .trim_end_matches("impl");
+
+                // Direct base match
+                if !adapter_base.is_empty() && !port_base.is_empty() && adapter_base == port_base {
+                    return true;
+                }
+                // Adapter contains port name
+                if adapter_lower.contains(&port_lower) {
+                    return true;
+                }
+                // Adapter ends with port name
+                if !port_lower.is_empty() && adapter_lower.ends_with(&port_lower) {
+                    return true;
+                }
+                // Adapter contains port base (e.g., "mongoinvoicerepository" contains "invoice")
+                if !port_base.is_empty() && adapter_lower.contains(port_base) {
+                    return true;
+                }
+                false
+            });
+
+            if !has_adapter {
+                let kind = ViolationKind::PortWithoutImplementation {
+                    port_name: node.name.clone(),
+                };
+                let severity = config.rules.resolve_severity(&kind, Severity::Info);
+                violations.push(Violation {
+                    kind,
+                    severity,
+                    location: node.location.clone(),
+                    message: format!(
+                        "Port '{}' has no infrastructure adapter implementing it",
+                        node.name
+                    ),
+                    suggestion: Some(
+                        "Create an infrastructure adapter that implements this port interface, \
+                         or remove the port if it is no longer needed."
+                            .to_string(),
+                    ),
+                });
+            }
+        }
+    }
+
     // Check 2: DB access in domain layer (domain importing infrastructure paths)
     for (src, _tgt, edge) in graph.edges_with_nodes() {
         if src.is_external {
@@ -931,6 +1031,7 @@ fn compute_metrics(
             ViolationKind::DomainInfrastructureLeak { .. } => "domain_infrastructure_leak",
             ViolationKind::InitFunctionCoupling { .. } => "init_coupling",
             ViolationKind::ConstructorReturnsConcrete { .. } => "constructor_concrete",
+            ViolationKind::PortWithoutImplementation { .. } => "missing_implementation",
         };
         *violations_by_kind.entry(kind_name.to_string()).or_insert(0) += 1;
     }

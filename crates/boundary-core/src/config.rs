@@ -218,6 +218,7 @@ fn default_severities() -> HashMap<String, Severity> {
     m.insert("init_coupling".to_string(), Severity::Warning);
     m.insert("domain_infra_leak".to_string(), Severity::Error);
     m.insert("constructor_concrete".to_string(), Severity::Warning);
+    m.insert("missing_implementation".to_string(), Severity::Info);
     m
 }
 
@@ -253,6 +254,7 @@ impl RulesConfig {
             ViolationKind::InitFunctionCoupling { .. } => "init_coupling",
             ViolationKind::DomainInfrastructureLeak { .. } => "domain_infra_leak",
             ViolationKind::ConstructorReturnsConcrete { .. } => "constructor_concrete",
+            ViolationKind::PortWithoutImplementation { .. } => "missing_implementation",
             ViolationKind::CustomRule { .. } => return default,
         };
         self.severities.get(category).copied().unwrap_or(default)
@@ -348,6 +350,7 @@ domain_infra_leak = "error"
 # Rule IDs (more precise, takes precedence over category names)
 # L001 = "error"    # domain-depends-on-infrastructure
 # PA001 = "info"    # missing-port-interface
+# PA002 = "info"    # port-without-implementation
 # PA003 = "warning"  # constructor-returns-concrete-type
 
 # Path-specific ignores
@@ -635,6 +638,29 @@ L001 = "warning"
         assert_eq!(
             config.rules.severities.get("L001").copied(),
             Some(Severity::Warning)
+        );
+    }
+
+    #[test]
+    fn test_resolve_severity_missing_implementation() {
+        let rules = RulesConfig::default();
+        let kind = ViolationKind::PortWithoutImplementation {
+            port_name: "UserRepository".to_string(),
+        };
+        // Default should be info
+        assert_eq!(
+            rules.resolve_severity(&kind, Severity::Warning),
+            Severity::Info
+        );
+
+        // Rule ID takes precedence
+        let mut rules2 = RulesConfig::default();
+        rules2
+            .severities
+            .insert("PA002".to_string(), Severity::Error);
+        assert_eq!(
+            rules2.resolve_severity(&kind, Severity::Warning),
+            Severity::Error
         );
     }
 

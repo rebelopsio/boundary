@@ -10,25 +10,26 @@ Every violation Boundary reports carries a **rule ID** — a short, stable ident
 
 | ID | Name | Description | Severity |
 |----|------|-------------|----------|
-| L001 | domain-depends-on-infrastructure | Domain layer imports directly from infrastructure | Error |
-| L002 | domain-depends-on-application | Domain layer depends on application orchestration | Error |
-| L003 | application-bypasses-ports | Application layer calls infrastructure without a port | Error |
-| L004 | init-function-coupling | Init/main wiring function couples layers directly | Warning |
-| L005 | domain-uses-infrastructure-type | Domain code references an infrastructure type | Error |
-| L099 | layer-boundary-violation | Catch-all for other forbidden layer crossings | Error |
+| <a id="l001"></a>L001 | domain-depends-on-infrastructure | Domain layer imports directly from infrastructure | Error |
+| <a id="l002"></a>L002 | domain-depends-on-application | Domain layer depends on application orchestration | Error |
+| <a id="l003"></a>L003 | application-bypasses-ports | Application layer calls infrastructure without a port | Error |
+| <a id="l004"></a>L004 | init-function-coupling | Init/main wiring function couples layers directly | Warning |
+| <a id="l005"></a>L005 | domain-uses-infrastructure-type | Domain code references an infrastructure type | Error |
+| <a id="l099"></a>L099 | layer-boundary-violation | Catch-all for other forbidden layer crossings | Error |
 
 ### Dependency Violations (`D`)
 
 | ID | Name | Description | Severity |
 |----|------|-------------|----------|
-| D001 | circular-dependency | Circular dependency detected between components | Error |
+| <a id="d001"></a>D001 | circular-dependency | Circular dependency detected between components | Error |
 
 ### Port/Adapter Violations (`PA`)
 
 | ID | Name | Description | Severity |
 |----|------|-------------|----------|
-| PA001 | missing-port-interface | Infrastructure adapter has no matching domain port | Warning |
-| PA003 | constructor-returns-concrete-type | Constructor returns concrete type instead of port interface | Warning |
+| <a id="pa001"></a>PA001 | missing-port-interface | Infrastructure adapter has no matching domain port | Warning |
+| <a id="pa002"></a>PA002 | port-without-implementation | Domain port has no infrastructure adapter implementing it | Info |
+| <a id="pa003"></a>PA003 | constructor-returns-concrete-type | Constructor returns concrete type instead of port interface | Warning |
 
 #### PA003: constructor-returns-concrete-type
 
@@ -54,6 +55,36 @@ func NewMailGunService(apiKey string) ports.NotificationService {
 
 When PA003 fires, PA001 (missing-port-interface) is suppressed for the same adapter since PA003
 provides more specific guidance.
+
+#### PA002: port-without-implementation
+
+Detects domain-layer port interfaces that have no matching infrastructure adapter. This helps
+identify ports that may have been defined but never implemented, or whose adapter was removed.
+
+Default severity is **Info** because unimplemented ports may be planned, implemented in a
+separate module, or defined as part of an interface-first design approach.
+
+**Violation:**
+```go
+// domain/ports/audit.go
+type AuditLogger interface {
+    Log(event string) error
+}
+// No adapter implementing AuditLogger exists in the infrastructure layer
+```
+
+**Fix:** Create an infrastructure adapter:
+```go
+// infrastructure/logging/audit.go
+type fileAuditLogger struct { path string }
+
+func NewFileAuditLogger(path string) ports.AuditLogger {
+    return &fileAuditLogger{path: path}
+}
+```
+
+PA002 checks both explicit `implements` relationships (from constructor analysis) and
+name-heuristic matching (same logic as PA001, inverted).
 
 ### Custom Rules (`C-`)
 

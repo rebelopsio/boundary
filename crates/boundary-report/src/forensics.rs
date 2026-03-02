@@ -279,6 +279,9 @@ pub fn format_forensics_report(analysis: &ForensicsAnalysis) -> String {
                 } => {
                     format!("concrete constructor: {adapter_name} -> *{concrete_type}")
                 }
+                ViolationKind::PortWithoutImplementation { port_name } => {
+                    format!("unimplemented port: {port_name}")
+                }
             };
             out.push_str(&format!(
                 "- **{}** [{}] {}: {}\n",

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.0](https://github.com/rebelopsio/boundary/compare/v0.25.0...v0.26.0) (2026-03-02)
+
+
+### Features
+
+* complete Phase 3 — doc URLs, PA002 detection, per-rule trends ([#101](https://github.com/rebelopsio/boundary/issues/101)) ([d4db08d](https://github.com/rebelopsio/boundary/commit/d4db08d0d056dd0c150d6fb09b91576c30dea56b))
+
 ## [0.25.0](https://github.com/rebelopsio/boundary/compare/v0.24.0...v0.25.0) (2026-03-01)
 
 

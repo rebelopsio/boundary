@@ -36,6 +36,7 @@ These rules map to existing `ViolationKind` variants — no new detection logic.
 | L099 | layer-boundary-violation | `LayerBoundary { other combos }` | Error |
 | D001 | circular-dependency | `CircularDependency` | Error |
 | PA001 | missing-port-interface | `MissingPort` | Warning |
+| PA002 | port-without-implementation | `PortWithoutImplementation` | Info |
 | PA003 | constructor-returns-concrete-type | `ConstructorReturnsConcrete` | Warning |
 | C-{name} | {name} | `CustomRule { name }` | (user-defined) |
 
@@ -129,6 +130,7 @@ PA001 = "info"
 | `circular_dependency` | `CircularDependency` |
 | `missing_port` | `MissingPort` |
 | `constructor_concrete` | `ConstructorReturnsConcrete` |
+| `missing_implementation` | `PortWithoutImplementation` |
 | `init_coupling` | `InitFunctionCoupling` |
 | `domain_infra_leak` | `DomainInfrastructureLeak` |
 
@@ -154,9 +156,15 @@ paths = ["legacy/**"]
 Path-specific ignores are applied uniformly — they filter violations in CLI output, library
 API, and (future) LSP integration.
 
-## Phase 3 (Future)
+## Phase 3
 
-- Documentation URLs on violations
-- New detection rules: PA002 (port-without-implementation)
-- PA003 (constructor-returns-concrete-type) — implemented in Phase 3
-- Historical tracking / violation trend comparison
+All Phase 3 items are implemented:
+
+- **Documentation URLs on violations** — each violation includes a `doc_url` field linking to its
+  documentation page. Custom rules (`C-*`) have no URL.
+- **PA003** (constructor-returns-concrete-type) — detects constructors returning concrete types
+  instead of port interfaces.
+- **PA002** (port-without-implementation) — detects domain ports with no infrastructure adapter.
+  Default severity: Info.
+- **Per-rule trend data** — `TrendReport` includes per-rule violation counts so `--no-regression`
+  shows which specific rules improved or regressed.

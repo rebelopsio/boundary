@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::path::Path;
 
@@ -6,6 +7,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::metrics::AnalysisResult;
+use crate::types::Violation;
 
 /// A snapshot of an analysis run, stored for evolution tracking.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,6 +16,15 @@ pub struct AnalysisSnapshot {
     pub git_commit: Option<String>,
     pub git_branch: Option<String>,
     pub result: AnalysisResult,
+}
+
+/// Per-rule violation count change between two snapshots.
+#[derive(Debug, Clone)]
+pub struct RuleTrend {
+    pub rule_id: String,
+    pub previous_count: usize,
+    pub current_count: usize,
+    pub delta: i64,
 }
 
 /// Trend report comparing two snapshots.
@@ -25,6 +36,7 @@ pub struct TrendReport {
     pub previous_violations: usize,
     pub current_violations: usize,
     pub violation_delta: i64,
+    pub rule_trends: Vec<RuleTrend>,
 }
 
 /// Save an analysis snapshot to `.boundary/history.ndjson`.
@@ -64,6 +76,39 @@ pub fn save_snapshot(project_path: &Path, result: &AnalysisResult) -> Result<()>
     Ok(())
 }
 
+/// Count violations grouped by rule ID.
+fn count_by_rule(violations: &[Violation]) -> HashMap<String, usize> {
+    let mut counts = HashMap::new();
+    for v in violations {
+        *counts.entry(v.kind.rule_id().to_string()).or_insert(0) += 1;
+    }
+    counts
+}
+
+/// Build per-rule trend data from previous and current violation counts.
+fn build_rule_trends(
+    previous: &HashMap<String, usize>,
+    current: &HashMap<String, usize>,
+) -> Vec<RuleTrend> {
+    let mut all_rules: std::collections::BTreeSet<&String> = std::collections::BTreeSet::new();
+    all_rules.extend(previous.keys());
+    all_rules.extend(current.keys());
+
+    all_rules
+        .into_iter()
+        .map(|rule_id| {
+            let prev = *previous.get(rule_id).unwrap_or(&0);
+            let curr = *current.get(rule_id).unwrap_or(&0);
+            RuleTrend {
+                rule_id: rule_id.clone(),
+                previous_count: prev,
+                current_count: curr,
+                delta: curr as i64 - prev as i64,
+            }
+        })
+        .collect()
+}
+
 /// Check if the current score regresses compared to the last snapshot.
 /// Returns Some(TrendReport) if there's a regression, None otherwise.
 pub fn check_regression(
@@ -86,6 +131,11 @@ pub fn check_regression(
         .as_ref()
         .map(|s| s.overall)
         .unwrap_or(0.0);
+
+    let prev_by_rule = count_by_rule(&last.result.violations);
+    let curr_by_rule = count_by_rule(&current_result.violations);
+    let rule_trends = build_rule_trends(&prev_by_rule, &curr_by_rule);
+
     let trend = TrendReport {
         previous_score: prev_overall,
         current_score: curr_overall,
@@ -94,6 +144,7 @@ pub fn check_regression(
         current_violations: current_result.violations.len(),
         violation_delta: current_result.violations.len() as i64
             - last.result.violations.len() as i64,
+        rule_trends,
     };
 
     if trend.score_delta < 0.0 {
@@ -163,6 +214,8 @@ fn get_git_branch(project_path: &Path) -> Option<String> {
 mod tests {
     use super::*;
     use crate::metrics::{AnalysisResult, ArchitectureScore};
+    use crate::types::{ArchLayer, Severity, SourceLocation, ViolationKind};
+    use std::path::PathBuf;
 
     fn sample_result(score: f64) -> AnalysisResult {
         AnalysisResult {
@@ -174,6 +227,40 @@ mod tests {
                 interface_coverage: score,
             }),
             violations: vec![],
+            component_count: 5,
+            dependency_count: 3,
+            files_analyzed: 5,
+            metrics: None,
+            package_metrics: vec![],
+            pattern_detection: None,
+        }
+    }
+
+    fn make_violation(kind: ViolationKind) -> Violation {
+        Violation {
+            kind,
+            severity: Severity::Error,
+            location: SourceLocation {
+                file: PathBuf::from("test.go"),
+                line: 1,
+                column: 1,
+            },
+            message: "test".to_string(),
+            suggestion: None,
+        }
+    }
+
+    fn sample_result_with_violations(score: f64, kinds: Vec<ViolationKind>) -> AnalysisResult {
+        let violations = kinds.into_iter().map(make_violation).collect();
+        AnalysisResult {
+            score: Some(ArchitectureScore {
+                overall: score,
+                structural_presence: 100.0,
+                layer_conformance: score,
+                dependency_compliance: score,
+                interface_coverage: score,
+            }),
+            violations,
             component_count: 5,
             dependency_count: 3,
             files_analyzed: 5,
@@ -215,5 +302,109 @@ mod tests {
         let result = sample_result(80.0);
         let trend = check_regression(dir.path(), &result).unwrap();
         assert!(trend.is_none(), "no regression when no history exists");
+    }
+
+    #[test]
+    fn test_count_by_rule() {
+        let violations = vec![
+            make_violation(ViolationKind::LayerBoundary {
+                from_layer: ArchLayer::Domain,
+                to_layer: ArchLayer::Infrastructure,
+            }),
+            make_violation(ViolationKind::LayerBoundary {
+                from_layer: ArchLayer::Domain,
+                to_layer: ArchLayer::Infrastructure,
+            }),
+            make_violation(ViolationKind::MissingPort {
+                adapter_name: "X".into(),
+            }),
+        ];
+        let counts = count_by_rule(&violations);
+        assert_eq!(counts.get("L001"), Some(&2));
+        assert_eq!(counts.get("PA001"), Some(&1));
+        assert_eq!(counts.get("PA003"), None);
+    }
+
+    #[test]
+    fn test_build_rule_trends_new_rule_appears() {
+        let prev = HashMap::from([("L001".to_string(), 2usize)]);
+        let curr = HashMap::from([("L001".to_string(), 2usize), ("PA001".to_string(), 1usize)]);
+        let trends = build_rule_trends(&prev, &curr);
+        assert_eq!(trends.len(), 2);
+
+        let l001 = trends.iter().find(|t| t.rule_id == "L001").unwrap();
+        assert_eq!(l001.delta, 0);
+
+        let pa001 = trends.iter().find(|t| t.rule_id == "PA001").unwrap();
+        assert_eq!(pa001.previous_count, 0);
+        assert_eq!(pa001.current_count, 1);
+        assert_eq!(pa001.delta, 1);
+    }
+
+    #[test]
+    fn test_build_rule_trends_rule_disappears() {
+        let prev = HashMap::from([("L001".to_string(), 3usize), ("PA001".to_string(), 2usize)]);
+        let curr = HashMap::from([("L001".to_string(), 1usize)]);
+        let trends = build_rule_trends(&prev, &curr);
+
+        let l001 = trends.iter().find(|t| t.rule_id == "L001").unwrap();
+        assert_eq!(l001.delta, -2);
+
+        let pa001 = trends.iter().find(|t| t.rule_id == "PA001").unwrap();
+        assert_eq!(pa001.previous_count, 2);
+        assert_eq!(pa001.current_count, 0);
+        assert_eq!(pa001.delta, -2);
+    }
+
+    #[test]
+    fn test_regression_includes_rule_trends() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Save a high-scoring snapshot with violations
+        let prev = sample_result_with_violations(
+            90.0,
+            vec![ViolationKind::MissingPort {
+                adapter_name: "X".into(),
+            }],
+        );
+        save_snapshot(dir.path(), &prev).unwrap();
+
+        // Current result is worse score with different violations
+        let curr = sample_result_with_violations(
+            70.0,
+            vec![
+                ViolationKind::MissingPort {
+                    adapter_name: "X".into(),
+                },
+                ViolationKind::LayerBoundary {
+                    from_layer: ArchLayer::Domain,
+                    to_layer: ArchLayer::Infrastructure,
+                },
+            ],
+        );
+
+        let trend = check_regression(dir.path(), &curr).unwrap();
+        assert!(trend.is_some(), "should detect regression");
+        let trend = trend.unwrap();
+
+        assert!(!trend.rule_trends.is_empty(), "should have rule trends");
+
+        let l001 = trend
+            .rule_trends
+            .iter()
+            .find(|t| t.rule_id == "L001")
+            .unwrap();
+        assert_eq!(l001.previous_count, 0);
+        assert_eq!(l001.current_count, 1);
+        assert_eq!(l001.delta, 1);
+
+        let pa001 = trend
+            .rule_trends
+            .iter()
+            .find(|t| t.rule_id == "PA001")
+            .unwrap();
+        assert_eq!(pa001.previous_count, 1);
+        assert_eq!(pa001.current_count, 1);
+        assert_eq!(pa001.delta, 0);
     }
 }

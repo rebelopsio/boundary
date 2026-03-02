@@ -8,6 +8,8 @@ use boundary_core::types::{Severity, Violation};
 struct ViolationOutput<'a> {
     rule: String,
     rule_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    doc_url: Option<String>,
     #[serde(flatten)]
     violation: &'a Violation,
 }
@@ -17,6 +19,7 @@ impl<'a> ViolationOutput<'a> {
         Self {
             rule: v.kind.rule_id().to_string(),
             rule_name: v.kind.name().to_string(),
+            doc_url: v.kind.doc_url(),
             violation: v,
         }
     }
@@ -248,6 +251,23 @@ mod tests {
         let (json, _) = format_check(&result, Severity::Error, true);
         assert!(!json.contains('\n'), "compact JSON should be single line");
         let _: serde_json::Value = serde_json::from_str(&json).expect("should be valid JSON");
+    }
+
+    #[test]
+    fn test_violation_doc_url_in_json() {
+        let result = sample_result(true);
+        let json = format_report(&result, false);
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("should be valid JSON");
+        let violation = &parsed["violations"][0];
+        assert!(
+            violation.get("doc_url").is_some(),
+            "built-in violations should have doc_url"
+        );
+        let url = violation["doc_url"].as_str().unwrap();
+        assert!(
+            url.starts_with("https://rebelopsio.github.io/boundary/features/rules.html#"),
+            "doc_url should point to rules page: {url}"
+        );
     }
 
     #[test]

@@ -191,6 +191,9 @@ pub fn format_report(result: &AnalysisResult) -> String {
             if let Some(ref suggestion) = v.suggestion {
                 out.push_str(&format!("    {}: {}\n", "Suggestion".cyan(), suggestion));
             }
+            if let Some(url) = v.kind.doc_url() {
+                out.push_str(&format!("    {}: {}\n", "Docs".cyan(), url));
+            }
         }
     }
 

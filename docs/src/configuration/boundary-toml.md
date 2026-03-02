@@ -121,6 +121,7 @@ Override the default severity for built-in violation types. Both **category name
 | `circular_dependency` | `error` | Circular dependency between components |
 | `missing_port` | `warning` | Adapter without a corresponding port interface |
 | `constructor_concrete` | `warning` | Constructor returns concrete type instead of port |
+| `missing_implementation` | `info` | Domain port has no implementing adapter |
 | `init_coupling` | `warning` | Go `init()` function creates hidden coupling |
 | `domain_infra_leak` | `error` | Domain references infrastructure types |
 

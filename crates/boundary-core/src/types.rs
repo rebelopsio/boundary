@@ -268,6 +268,8 @@ impl std::str::FromStr for Severity {
     }
 }
 
+const DOCS_BASE_URL: &str = "https://rebelopsio.github.io/boundary/features/rules.html";
+
 /// Kind of architectural violation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ViolationKind {
@@ -297,6 +299,9 @@ pub enum ViolationKind {
         adapter_name: String,
         concrete_type: String,
     },
+    PortWithoutImplementation {
+        port_name: String,
+    },
 }
 
 impl ViolationKind {
@@ -317,6 +322,7 @@ impl ViolationKind {
             ViolationKind::CircularDependency { .. } => RuleId::dependency(1),
             ViolationKind::MissingPort { .. } => RuleId::port_adapter(1),
             ViolationKind::ConstructorReturnsConcrete { .. } => RuleId::port_adapter(3),
+            ViolationKind::PortWithoutImplementation { .. } => RuleId::port_adapter(2),
             ViolationKind::CustomRule { rule_name } => RuleId::custom(rule_name),
         }
     }
@@ -340,7 +346,19 @@ impl ViolationKind {
             ViolationKind::CircularDependency { .. } => "circular-dependency",
             ViolationKind::MissingPort { .. } => "missing-port-interface",
             ViolationKind::ConstructorReturnsConcrete { .. } => "constructor-returns-concrete-type",
+            ViolationKind::PortWithoutImplementation { .. } => "port-without-implementation",
             ViolationKind::CustomRule { rule_name } => rule_name,
+        }
+    }
+
+    /// Returns a documentation URL for this violation kind, or `None` for custom rules.
+    pub fn doc_url(&self) -> Option<String> {
+        match self {
+            ViolationKind::CustomRule { .. } => None,
+            _ => {
+                let id = self.rule_id().to_string().to_lowercase();
+                Some(format!("{DOCS_BASE_URL}#{id}"))
+            }
         }
     }
 }
@@ -541,6 +559,51 @@ mod tests {
             .name(),
             "constructor-returns-concrete-type"
         );
+    }
+
+    #[test]
+    fn test_doc_url_built_in_rules() {
+        let kind = ViolationKind::LayerBoundary {
+            from_layer: ArchLayer::Domain,
+            to_layer: ArchLayer::Infrastructure,
+        };
+        assert_eq!(kind.doc_url(), Some(format!("{DOCS_BASE_URL}#l001")));
+
+        let kind = ViolationKind::MissingPort {
+            adapter_name: "X".into(),
+        };
+        assert_eq!(kind.doc_url(), Some(format!("{DOCS_BASE_URL}#pa001")));
+
+        let kind = ViolationKind::ConstructorReturnsConcrete {
+            adapter_name: "X".into(),
+            concrete_type: "Y".into(),
+        };
+        assert_eq!(kind.doc_url(), Some(format!("{DOCS_BASE_URL}#pa003")));
+    }
+
+    #[test]
+    fn test_pa002_rule_id() {
+        let kind = ViolationKind::PortWithoutImplementation {
+            port_name: "UserRepository".into(),
+        };
+        assert_eq!(kind.rule_id(), RuleId::port_adapter(2));
+        assert_eq!(kind.rule_id().to_string(), "PA002");
+    }
+
+    #[test]
+    fn test_pa002_name() {
+        let kind = ViolationKind::PortWithoutImplementation {
+            port_name: "UserRepository".into(),
+        };
+        assert_eq!(kind.name(), "port-without-implementation");
+    }
+
+    #[test]
+    fn test_doc_url_none_for_custom() {
+        let kind = ViolationKind::CustomRule {
+            rule_name: "no-logging".into(),
+        };
+        assert_eq!(kind.doc_url(), None);
     }
 
     #[test]

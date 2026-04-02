@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.27.0](https://github.com/rebelopsio/boundary/compare/v0.26.0...v0.27.0) (2026-04-02)
+
+
+### Features
+
+* implement Phase 4A — L006 framework blocklist and DM001 anemic model detection ([#103](https://github.com/rebelopsio/boundary/issues/103)) ([fe4c961](https://github.com/rebelopsio/boundary/commit/fe4c9612d198707ea7cef141846eb8ff1d3ac91c))
+
 ## [0.26.0](https://github.com/rebelopsio/boundary/compare/v0.25.0...v0.26.0) (2026-03-02)
 
 

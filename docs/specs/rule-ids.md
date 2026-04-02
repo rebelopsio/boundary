@@ -15,8 +15,9 @@ Rule IDs follow the pattern `{prefix}{number}`:
 
 | Prefix | Category | Examples |
 |--------|----------|----------|
-| `L` | Layer boundary violations | L001, L002 |
+| `L` | Layer boundary violations | L001, L002, L006 |
 | `D` | Dependency graph violations | D001 |
+| `DM` | Domain model violations | DM001 |
 | `PA` | Port/adapter violations | PA001 |
 | `C-` | Custom user-defined rules | C-no-logging-in-domain |
 
@@ -38,6 +39,8 @@ These rules map to existing `ViolationKind` variants — no new detection logic.
 | PA001 | missing-port-interface | `MissingPort` | Warning |
 | PA002 | port-without-implementation | `PortWithoutImplementation` | Info |
 | PA003 | constructor-returns-concrete-type | `ConstructorReturnsConcrete` | Warning |
+| L006 | framework-imports-in-domain | `FrameworkImportsInDomain` | Error |
+| DM001 | anemic-domain-model | `AnemicDomainModel` | Warning |
 | C-{name} | {name} | `CustomRule { name }` | (user-defined) |
 
 ### Layer Boundary Specialization
@@ -168,3 +171,25 @@ All Phase 3 items are implemented:
   Default severity: Info.
 - **Per-rule trend data** — `TrendReport` includes per-rule violation counts so `--no-regression`
   shows which specific rules improved or regressed.
+
+## Phase 4A — Framework Blocklist & Anemic Models
+
+New rules and a new rule category:
+
+- **L006** (framework-imports-in-domain) — detects domain-layer imports of framework packages
+  (ORM, HTTP frameworks, cloud SDKs). Extends L005 with a configurable blocklist/allowlist.
+  Deduplicates with L005 so the same import is not flagged by both rules.
+- **DM001** (anemic-domain-model) — detects domain entities with fields but no business methods.
+  Leverages the existing `EntityInfo.is_anemic_domain_model` flag. Default severity: Warning.
+
+New configuration fields in `[rules]`:
+
+- `blocked_packages` — package patterns to block from domain layer (L006)
+- `allowed_std_packages` — standard library packages allowed in domain layer (L006)
+
+New category name mapping:
+
+| Category Name | Violation Kind |
+|---------------|----------------|
+| `framework_imports` | `FrameworkImportsInDomain` |
+| `anemic_model` | `AnemicDomainModel` |

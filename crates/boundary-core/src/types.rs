@@ -221,6 +221,10 @@ impl RuleId {
         Self::new("PA", n)
     }
 
+    pub fn domain_model(n: u16) -> Self {
+        Self::new("DM", n)
+    }
+
     pub fn custom(name: &str) -> Self {
         Self(format!("C-{}", name))
     }
@@ -302,6 +306,26 @@ pub enum ViolationKind {
     PortWithoutImplementation {
         port_name: String,
     },
+    FrameworkImportsInDomain {
+        component: String,
+        framework_package: String,
+        import_type: ImportType,
+    },
+    AnemicDomainModel {
+        entity_name: String,
+        field_count: usize,
+        method_count: usize,
+    },
+}
+
+/// Classification of a blocked framework import.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ImportType {
+    Orm,
+    Framework,
+    Database,
+    Cloud,
+    Http,
 }
 
 impl ViolationKind {
@@ -323,6 +347,8 @@ impl ViolationKind {
             ViolationKind::MissingPort { .. } => RuleId::port_adapter(1),
             ViolationKind::ConstructorReturnsConcrete { .. } => RuleId::port_adapter(3),
             ViolationKind::PortWithoutImplementation { .. } => RuleId::port_adapter(2),
+            ViolationKind::FrameworkImportsInDomain { .. } => RuleId::layer(6),
+            ViolationKind::AnemicDomainModel { .. } => RuleId::domain_model(1),
             ViolationKind::CustomRule { rule_name } => RuleId::custom(rule_name),
         }
     }
@@ -347,6 +373,8 @@ impl ViolationKind {
             ViolationKind::MissingPort { .. } => "missing-port-interface",
             ViolationKind::ConstructorReturnsConcrete { .. } => "constructor-returns-concrete-type",
             ViolationKind::PortWithoutImplementation { .. } => "port-without-implementation",
+            ViolationKind::FrameworkImportsInDomain { .. } => "framework-imports-in-domain",
+            ViolationKind::AnemicDomainModel { .. } => "anemic-domain-model",
             ViolationKind::CustomRule { rule_name } => rule_name,
         }
     }
@@ -436,6 +464,7 @@ mod tests {
         assert_eq!(RuleId::layer(99).to_string(), "L099");
         assert_eq!(RuleId::dependency(1).to_string(), "D001");
         assert_eq!(RuleId::port_adapter(1).to_string(), "PA001");
+        assert_eq!(RuleId::domain_model(1).to_string(), "DM001");
         assert_eq!(RuleId::custom("no-logging").to_string(), "C-no-logging");
     }
 
@@ -596,6 +625,32 @@ mod tests {
             port_name: "UserRepository".into(),
         };
         assert_eq!(kind.name(), "port-without-implementation");
+    }
+
+    #[test]
+    fn test_l006_rule_id_and_name() {
+        let kind = ViolationKind::FrameworkImportsInDomain {
+            component: "Invoice".into(),
+            framework_package: "gorm.io/gorm".into(),
+            import_type: ImportType::Orm,
+        };
+        assert_eq!(kind.rule_id(), RuleId::layer(6));
+        assert_eq!(kind.rule_id().to_string(), "L006");
+        assert_eq!(kind.name(), "framework-imports-in-domain");
+        assert_eq!(kind.doc_url(), Some(format!("{DOCS_BASE_URL}#l006")));
+    }
+
+    #[test]
+    fn test_dm001_rule_id_and_name() {
+        let kind = ViolationKind::AnemicDomainModel {
+            entity_name: "Order".into(),
+            field_count: 7,
+            method_count: 0,
+        };
+        assert_eq!(kind.rule_id(), RuleId::domain_model(1));
+        assert_eq!(kind.rule_id().to_string(), "DM001");
+        assert_eq!(kind.name(), "anemic-domain-model");
+        assert_eq!(kind.doc_url(), Some(format!("{DOCS_BASE_URL}#dm001")));
     }
 
     #[test]

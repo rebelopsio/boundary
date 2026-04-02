@@ -515,13 +515,26 @@ fn associate_methods(components: &mut [Component], methods: &HashMap<String, Vec
             }
         }
 
-        // Flag entities that have an identity field but no domain methods.
-        // An entity with zero methods after the association pass is anemic —
+        // Flag entities whose methods are all trivial (getters/setters) or absent.
+        // An entity with no business methods after the association pass is anemic —
         // it holds data but delegates all behaviour to services.
         if let ComponentKind::Entity(info) = &mut component.kind {
-            info.is_anemic_domain_model = info.methods.is_empty();
+            info.is_anemic_domain_model = info.methods.iter().all(is_trivial_method);
         }
     }
+}
+
+/// Returns true if a method is a trivial getter or setter with no business logic.
+///
+/// Getter pattern: name starts with `Get`, takes no parameters.
+/// Setter pattern: name starts with `Set`, takes exactly one parameter.
+fn is_trivial_method(method: &MethodInfo) -> bool {
+    let has_no_params = method.parameters.is_empty() || method.parameters == "()";
+    let has_one_param = !has_no_params && !method.parameters.contains(',');
+
+    let is_getter = method.name.starts_with("Get") && has_no_params;
+    let is_setter = method.name.starts_with("Set") && has_one_param;
+    is_getter || is_setter
 }
 
 /// Check if a struct's methods indicate an Active Record pattern.
@@ -1098,6 +1111,109 @@ func (i *Invoice) Finalize() error {
             assert!(
                 !info.is_anemic_domain_model,
                 "Invoice with methods must NOT be flagged as anemic"
+            );
+        } else {
+            panic!("expected Entity kind; got {:?}", entity.unwrap().kind);
+        }
+    }
+
+    #[test]
+    fn test_entity_with_only_getters_flagged_anemic() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        // Order has an ID field and only getter methods — still anemic.
+        let content = r#"
+package models
+
+type Order struct {
+    ID         string
+    CustomerID string
+    Items      []string
+    Total      float64
+    Status     string
+    CreatedAt  string
+    UpdatedAt  string
+}
+
+func (o *Order) GetID() string { return o.ID }
+func (o *Order) GetTotal() float64 { return o.Total }
+func (o *Order) GetStatus() string { return o.Status }
+"#;
+        let path = PathBuf::from("internal/domain/models/order.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let entity = components.iter().find(|c| c.name == "Order");
+        assert!(entity.is_some(), "should find Order");
+        if let ComponentKind::Entity(ref info) = entity.unwrap().kind {
+            assert!(
+                info.is_anemic_domain_model,
+                "Order with only getter methods must be flagged as anemic"
+            );
+        } else {
+            panic!("expected Entity kind; got {:?}", entity.unwrap().kind);
+        }
+    }
+
+    #[test]
+    fn test_entity_with_only_setters_flagged_anemic() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        let content = r#"
+package models
+
+type Customer struct {
+    ID    string
+    Name  string
+    Email string
+    Phone string
+}
+
+func (c *Customer) SetName(name string) { c.Name = name }
+func (c *Customer) SetEmail(email string) { c.Email = email }
+"#;
+        let path = PathBuf::from("internal/domain/models/customer.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let entity = components.iter().find(|c| c.name == "Customer");
+        assert!(entity.is_some(), "should find Customer");
+        if let ComponentKind::Entity(ref info) = entity.unwrap().kind {
+            assert!(
+                info.is_anemic_domain_model,
+                "Customer with only setter methods must be flagged as anemic"
+            );
+        } else {
+            panic!("expected Entity kind; got {:?}", entity.unwrap().kind);
+        }
+    }
+
+    #[test]
+    fn test_entity_with_mixed_methods_not_anemic() {
+        let analyzer = GoAnalyzer::new().unwrap();
+        // Entity has getters AND business methods — not anemic.
+        let content = r#"
+package models
+
+type Account struct {
+    ID      string
+    Balance float64
+    Status  string
+    Owner   string
+}
+
+func (a *Account) GetBalance() float64 { return a.Balance }
+func (a *Account) Deposit(amount float64) error { return nil }
+func (a *Account) Withdraw(amount float64) error { return nil }
+"#;
+        let path = PathBuf::from("internal/domain/models/account.go");
+        let parsed = analyzer.parse_file(&path, content).unwrap();
+        let components = analyzer.extract_components(&parsed);
+
+        let entity = components.iter().find(|c| c.name == "Account");
+        assert!(entity.is_some(), "should find Account");
+        if let ComponentKind::Entity(ref info) = entity.unwrap().kind {
+            assert!(
+                !info.is_anemic_domain_model,
+                "Account with business methods must NOT be flagged as anemic"
             );
         } else {
             panic!("expected Entity kind; got {:?}", entity.unwrap().kind);

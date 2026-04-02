@@ -282,6 +282,20 @@ pub fn format_forensics_report(analysis: &ForensicsAnalysis) -> String {
                 ViolationKind::PortWithoutImplementation { port_name } => {
                     format!("unimplemented port: {port_name}")
                 }
+                ViolationKind::FrameworkImportsInDomain {
+                    component,
+                    framework_package,
+                    ..
+                } => {
+                    format!("framework import: {component} uses {framework_package}")
+                }
+                ViolationKind::AnemicDomainModel {
+                    entity_name,
+                    field_count,
+                    ..
+                } => {
+                    format!("anemic model: {entity_name} ({field_count} fields, no behavior)")
+                }
             };
             out.push_str(&format!(
                 "- **{}** [{}] {}: {}\n",

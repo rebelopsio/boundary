@@ -2,13 +2,13 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::Config;
+use crate::config::{Config, RulesConfig};
 use crate::graph::DependencyGraph;
 use crate::metrics_report::{ClassificationCoverage, DependencyDepthMetrics, MetricsReport};
 use crate::pattern_detection::{detect_patterns, PatternDetection};
 use crate::types::{
-    ArchLayer, ArchitectureMode, Component, ComponentKind, Dependency, Severity, Violation,
-    ViolationKind,
+    ArchLayer, ArchitectureMode, Component, ComponentKind, Dependency, ImportType, Severity,
+    Violation, ViolationKind,
 };
 
 /// Result for a single service in a multi-service analysis.
@@ -221,6 +221,12 @@ pub fn detect_violations(graph: &DependencyGraph, config: &Config) -> Vec<Violat
 
     // Pattern violations (DDD structural checks)
     detect_pattern_violations(graph, config, &mut violations);
+
+    // Framework import violations (L006)
+    detect_framework_imports(graph, config, &mut violations);
+
+    // Anemic domain model violations (DM001)
+    detect_anemic_models(graph, config, &mut violations);
 
     // Init function coupling violations
     detect_init_violations(graph, config, &mut violations);
@@ -712,6 +718,132 @@ fn detect_pattern_violations(
     }
 }
 
+fn detect_framework_imports(
+    graph: &DependencyGraph,
+    config: &Config,
+    violations: &mut Vec<Violation>,
+) {
+    for (src, _tgt, edge) in graph.edges_with_nodes() {
+        if src.is_external || src.is_cross_cutting {
+            continue;
+        }
+        if src.architecture_mode == ArchitectureMode::ActiveRecord {
+            continue;
+        }
+        if src.layer != Some(ArchLayer::Domain) {
+            continue;
+        }
+
+        if let Some(ref import_path) = edge.import_path {
+            let path_lower = import_path.to_lowercase();
+
+            // Skip imports already caught by L005 (INFRA_KEYWORDS) to avoid duplicates
+            if INFRA_KEYWORDS.iter().any(|kw| path_lower.contains(kw)) {
+                continue;
+            }
+
+            if is_blocked_package(import_path, &config.rules) {
+                let import_type = classify_import_type(import_path);
+                let kind = ViolationKind::FrameworkImportsInDomain {
+                    component: src.name.clone(),
+                    framework_package: import_path.clone(),
+                    import_type,
+                };
+                let severity = config.rules.resolve_severity(&kind, Severity::Error);
+                violations.push(Violation {
+                    kind,
+                    severity,
+                    location: edge.location.clone(),
+                    message: format!(
+                        "Domain component '{}' imports framework package '{import_path}'",
+                        src.name,
+                    ),
+                    suggestion: Some(
+                        "Remove framework imports from domain layer. \
+                         Define a port interface in domain/ports instead."
+                            .to_string(),
+                    ),
+                });
+            }
+        }
+    }
+}
+
+fn is_blocked_package(import_path: &str, rules: &RulesConfig) -> bool {
+    // Check if explicitly allowed
+    if rules
+        .allowed_std_packages
+        .iter()
+        .any(|allowed| import_path == allowed || import_path.starts_with(&format!("{allowed}/")))
+    {
+        return false;
+    }
+
+    // Check against blocklist patterns
+    rules.blocked_packages.iter().any(|pattern| {
+        if let Some(prefix) = pattern.strip_suffix("/*") {
+            import_path.starts_with(prefix)
+        } else {
+            import_path == pattern
+        }
+    })
+}
+
+fn classify_import_type(import_path: &str) -> ImportType {
+    let lower = import_path.to_lowercase();
+    if lower.contains("gorm") || lower.contains("entgo") {
+        ImportType::Orm
+    } else if lower.contains("gin") || lower.contains("echo") || lower.contains("fiber") {
+        ImportType::Framework
+    } else if lower.contains("cloud.google") || lower.contains("aws-sdk") {
+        ImportType::Cloud
+    } else if lower == "net/http" {
+        ImportType::Http
+    } else {
+        ImportType::Framework
+    }
+}
+
+fn detect_anemic_models(graph: &DependencyGraph, config: &Config, violations: &mut Vec<Violation>) {
+    for node in graph.nodes() {
+        if node.is_external || node.is_cross_cutting {
+            continue;
+        }
+        if node.layer != Some(ArchLayer::Domain) {
+            continue;
+        }
+
+        if let Some(ComponentKind::Entity(ref info)) = node.kind {
+            if info.is_anemic_domain_model {
+                let non_trivial = info.methods.len();
+                let kind = ViolationKind::AnemicDomainModel {
+                    entity_name: node.name.clone(),
+                    field_count: info.fields.len(),
+                    method_count: non_trivial,
+                };
+                let severity = config.rules.resolve_severity(&kind, Severity::Warning);
+                violations.push(Violation {
+                    kind,
+                    severity,
+                    location: node.location.clone(),
+                    message: format!(
+                        "Entity '{}' has {} fields but no business methods",
+                        node.name,
+                        info.fields.len(),
+                    ),
+                    suggestion: Some(format!(
+                        "Consider moving business logic from services into the entity:\n\
+                         - Validation rules → {name}.Validate()\n\
+                         - State transitions → {name}.UpdateStatus()\n\
+                         - Business calculations → private methods",
+                        name = node.name,
+                    )),
+                });
+            }
+        }
+    }
+}
+
 fn detect_init_violations(
     graph: &DependencyGraph,
     config: &Config,
@@ -1032,6 +1164,8 @@ fn compute_metrics(
             ViolationKind::InitFunctionCoupling { .. } => "init_coupling",
             ViolationKind::ConstructorReturnsConcrete { .. } => "constructor_concrete",
             ViolationKind::PortWithoutImplementation { .. } => "missing_implementation",
+            ViolationKind::FrameworkImportsInDomain { .. } => "framework_imports",
+            ViolationKind::AnemicDomainModel { .. } => "anemic_model",
         };
         *violations_by_kind.entry(kind_name.to_string()).or_insert(0) += 1;
     }

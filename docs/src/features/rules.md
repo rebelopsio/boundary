@@ -15,6 +15,7 @@ Every violation Boundary reports carries a **rule ID** — a short, stable ident
 | <a id="l003"></a>L003 | application-bypasses-ports | Application layer calls infrastructure without a port | Error |
 | <a id="l004"></a>L004 | init-function-coupling | Init/main wiring function couples layers directly | Warning |
 | <a id="l005"></a>L005 | domain-uses-infrastructure-type | Domain code references an infrastructure type | Error |
+| <a id="l006"></a>L006 | framework-imports-in-domain | Domain layer imports framework packages (ORM, HTTP, cloud SDK) | Error |
 | <a id="l099"></a>L099 | layer-boundary-violation | Catch-all for other forbidden layer crossings | Error |
 
 ### Dependency Violations (`D`)
@@ -85,6 +86,82 @@ func NewFileAuditLogger(path string) ports.AuditLogger {
 
 PA002 checks both explicit `implements` relationships (from constructor analysis) and
 name-heuristic matching (same logic as PA001, inverted).
+
+### Domain Model Violations (`DM`)
+
+| ID | Name | Description | Severity |
+|----|------|-------------|----------|
+| <a id="dm001"></a>DM001 | anemic-domain-model | Domain entity has only fields/getters/setters, no business behavior | Warning |
+
+#### L006: framework-imports-in-domain
+
+Detects domain-layer files that import framework packages such as ORMs, HTTP frameworks, or
+cloud SDKs. The domain layer should contain only pure business logic and depend on abstractions
+(port interfaces), not on specific technology choices.
+
+L006 extends L005 with a configurable blocklist. Imports already caught by L005 (database
+keywords) are not double-reported.
+
+**Violation:**
+```go
+// domain/entities/invoice.go
+import (
+    "gorm.io/gorm"              // L006 — ORM in domain
+    "github.com/gin-gonic/gin"  // L006 — HTTP framework in domain
+)
+```
+
+**Fix:** Remove framework imports and use port interfaces:
+```go
+// domain/entities/invoice.go
+import "time"  // Allowed stdlib
+
+type Invoice struct {
+    ID     string
+    Amount float64
+    Status InvoiceStatus
+}
+```
+
+**Configuration:** The blocklist and allowlist are configurable in `.boundary.toml`:
+```toml
+[rules]
+blocked_packages = ["gorm.io/*", "github.com/gin-gonic/*", "net/http"]
+allowed_std_packages = ["time", "errors", "fmt", "context"]
+```
+
+#### DM001: anemic-domain-model
+
+Detects domain entities that have fields but no business methods — only trivial getters
+(`Get*`) and setters (`Set*`). This is an anti-pattern in DDD: entities should encapsulate
+business behavior, not just hold data.
+
+Default severity is **Warning** because some entities may intentionally be data-only (e.g.,
+value objects classified as entities by heuristic).
+
+**Violation:**
+```go
+// domain/entities/order.go
+type Order struct {
+    ID     string
+    Total  float64
+    Status string
+}
+
+func (o *Order) GetTotal() float64 { return o.Total }
+func (o *Order) GetStatus() string { return o.Status }
+```
+
+**Fix:** Move business logic into the entity:
+```go
+func (o *Order) Submit() error {
+    if o.Total <= 0 {
+        return ErrZeroTotal
+    }
+    o.Status = "submitted"
+    return nil
+}
+```
 
 ### Custom Rules (`C-`)
 

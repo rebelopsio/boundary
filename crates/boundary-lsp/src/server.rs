@@ -123,6 +123,14 @@ impl BoundaryLanguageServer {
                 ViolationKind::PortWithoutImplementation { port_name } => {
                     format!("port-without-impl: {port_name}")
                 }
+                ViolationKind::FrameworkImportsInDomain {
+                    framework_package, ..
+                } => {
+                    format!("framework-import: {framework_package}")
+                }
+                ViolationKind::AnemicDomainModel { entity_name, .. } => {
+                    format!("anemic-model: {entity_name}")
+                }
             };
 
             let diagnostic = Diagnostic {

@@ -204,6 +204,12 @@ pub struct RulesConfig {
     pub detect_init_functions: bool,
     #[serde(default)]
     pub ignore: Vec<IgnoreRuleConfig>,
+    /// Package patterns blocked from domain layer (L006).
+    #[serde(default = "default_blocked_packages")]
+    pub blocked_packages: Vec<String>,
+    /// Standard library packages allowed in domain layer (L006).
+    #[serde(default = "default_allowed_std_packages")]
+    pub allowed_std_packages: Vec<String>,
 }
 
 fn default_true() -> bool {
@@ -219,7 +225,38 @@ fn default_severities() -> HashMap<String, Severity> {
     m.insert("domain_infra_leak".to_string(), Severity::Error);
     m.insert("constructor_concrete".to_string(), Severity::Warning);
     m.insert("missing_implementation".to_string(), Severity::Info);
+    m.insert("framework_imports".to_string(), Severity::Error);
+    m.insert("anemic_model".to_string(), Severity::Warning);
     m
+}
+
+fn default_blocked_packages() -> Vec<String> {
+    vec![
+        // ORM
+        "gorm.io/*".to_string(),
+        "github.com/go-gorm/*".to_string(),
+        "entgo.io/*".to_string(),
+        // Web frameworks
+        "github.com/gin-gonic/*".to_string(),
+        "github.com/labstack/echo/*".to_string(),
+        "github.com/gofiber/fiber/*".to_string(),
+        // Cloud SDKs
+        "cloud.google.com/*".to_string(),
+        "github.com/aws/aws-sdk-go/*".to_string(),
+        // HTTP server (net/url is intentionally NOT blocked — useful for value objects)
+        "net/http".to_string(),
+    ]
+}
+
+fn default_allowed_std_packages() -> Vec<String> {
+    vec![
+        "time".to_string(),
+        "errors".to_string(),
+        "fmt".to_string(),
+        "context".to_string(),
+        "strings".to_string(),
+        "strconv".to_string(),
+    ]
 }
 
 fn default_fail_on() -> Severity {
@@ -235,6 +272,8 @@ impl Default for RulesConfig {
             custom_rules: Vec::new(),
             detect_init_functions: true,
             ignore: Vec::new(),
+            blocked_packages: default_blocked_packages(),
+            allowed_std_packages: default_allowed_std_packages(),
         }
     }
 }
@@ -255,6 +294,8 @@ impl RulesConfig {
             ViolationKind::DomainInfrastructureLeak { .. } => "domain_infra_leak",
             ViolationKind::ConstructorReturnsConcrete { .. } => "constructor_concrete",
             ViolationKind::PortWithoutImplementation { .. } => "missing_implementation",
+            ViolationKind::FrameworkImportsInDomain { .. } => "framework_imports",
+            ViolationKind::AnemicDomainModel { .. } => "anemic_model",
             ViolationKind::CustomRule { .. } => return default,
         };
         self.severities.get(category).copied().unwrap_or(default)

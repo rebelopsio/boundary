@@ -107,6 +107,33 @@ Weights should sum to 1.0.
 | `fail_on` | string | `"error"` | Minimum severity to cause non-zero exit |
 | `min_score` | float | _(none)_ | Optional minimum overall score |
 | `detect_init_functions` | bool | `true` | Detect Go `init()` side-effect coupling |
+| `blocked_packages` | list | _(see below)_ | Package patterns blocked from domain layer (L006) |
+| `allowed_std_packages` | list | _(see below)_ | Standard library packages allowed in domain (L006) |
+
+#### Default Blocked Packages (L006)
+
+```toml
+blocked_packages = [
+    "gorm.io/*",
+    "github.com/go-gorm/*",
+    "entgo.io/*",
+    "github.com/gin-gonic/*",
+    "github.com/labstack/echo/*",
+    "github.com/gofiber/fiber/*",
+    "cloud.google.com/*",
+    "github.com/aws/aws-sdk-go/*",
+    "net/http",
+]
+```
+
+#### Default Allowed Stdlib (L006)
+
+```toml
+allowed_std_packages = ["time", "errors", "fmt", "context", "strings", "strconv"]
+```
+
+Patterns ending with `/*` match any sub-path. To override, set the full list in your config —
+values are replaced, not merged.
 
 ### `[rules.severities]`
 
@@ -124,6 +151,8 @@ Override the default severity for built-in violation types. Both **category name
 | `missing_implementation` | `info` | Domain port has no implementing adapter |
 | `init_coupling` | `warning` | Go `init()` function creates hidden coupling |
 | `domain_infra_leak` | `error` | Domain references infrastructure types |
+| `framework_imports` | `error` | Domain imports framework packages (ORM, HTTP, cloud) |
+| `anemic_model` | `warning` | Domain entity has only data, no business behavior |
 
 #### Rule IDs
 
